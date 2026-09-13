@@ -32,10 +32,21 @@ jobs:
       - name: Build mobile and automotive debug APKs
         run: ./gradlew --stacktrace :app:assembleMobileDebug :app:assembleAutomotiveDebug
 
-      - name: Upload build outputs
+      - name: Build mobile and automotive release bundles
+        run: ./gradlew --stacktrace :app:bundleMobileRelease :app:bundleAutomotiveRelease
+
+      - name: Upload debug APKs
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: anexplorer-modern-debug
+          name: anexplorer-modern-debug-apks
           path: app/build/outputs/apk/**/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload unsigned release bundles
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anexplorer-modern-release-aabs
+          path: app/build/outputs/bundle/**/*.aab
           if-no-files-found: error
