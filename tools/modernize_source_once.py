@@ -1,5 +1,8 @@
 from pathlib import Path
 
+# One-time transformer for legacy source areas that are safer to patch mechanically than
+# to replace wholesale through the GitHub API. Re-running is intentionally idempotent.
+
 
 def replace_once(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
