@@ -18,30 +18,30 @@ package dev.dworks.apps.anexplorer.misc;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.Settings;
+
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.appcompat.app.AppCompatActivity;
 
 /**
- * Utility class that wraps access to the runtime permissions API in M and provides basic helper
- * methods.
+ * Runtime-permission helpers used by the legacy source on current Android versions.
  */
-public class PermissionUtil {
+public final class PermissionUtil {
 
-    /**
-     * Check that all given permissions have been granted by verifying that each entry in the
-     * given array is of the value {@link PackageManager#PERMISSION_GRANTED}.
-     *
-     * @see Activity#onRequestPermissionsResult(int, String[], int[])
-     */
+    private PermissionUtil() {
+    }
+
     public static boolean verifyPermissions(int[] grantResults) {
-        // At least one result must be checked.
-        if(grantResults.length < 1){
+        if (grantResults == null || grantResults.length < 1) {
             return false;
         }
-
-        // Verify that each required permission has been granted, otherwise return false.
         for (int result : grantResults) {
             if (result != PackageManager.PERMISSION_GRANTED) {
                 return false;
@@ -50,21 +50,52 @@ public class PermissionUtil {
         return true;
     }
 
-    /**
-     * Returns true if the Activity has access to a all given permission.
-     */
     public static boolean hasPermission(AppCompatActivity activity, String... permissions) {
         for (String permission : permissions) {
-            if (ContextCompat.checkSelfPermission(activity, permission) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(activity, permission)
+                    != PackageManager.PERMISSION_GRANTED) {
                 return false;
             }
         }
         return true;
     }
 
-    public static boolean hasStoragePermission(Activity activity){
-        return ActivityCompat.checkSelfPermission(activity,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                == PackageManager.PERMISSION_GRANTED;
+    /**
+     * File managers targeting Android 11+ must use the All files access app-op. The old
+     * WRITE_EXTERNAL_STORAGE runtime permission no longer grants broad filesystem access.
+     */
+    public static boolean hasStoragePermission(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED;
+        }
+        return true;
+    }
+
+    public static boolean hasStoragePermission(Activity activity) {
+        return hasStoragePermission((Context) activity);
+    }
+
+    /**
+     * Opens the most specific system page available for granting All files access.
+     */
+    public static Intent createManageStorageIntent(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return null;
+        }
+
+        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+        intent.setData(Uri.parse("package:" + context.getPackageName()));
+        return intent;
+    }
+
+    public static Intent createManageStorageFallbackIntent() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return null;
+        }
+        return new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
     }
 }
