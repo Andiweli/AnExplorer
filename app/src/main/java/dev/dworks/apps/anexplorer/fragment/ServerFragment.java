@@ -8,7 +8,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
@@ -17,6 +16,8 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
+
+import androidx.core.content.ContextCompat;
 
 import dev.dworks.apps.anexplorer.DocumentsApplication;
 import dev.dworks.apps.anexplorer.R;
@@ -32,7 +33,6 @@ import static dev.dworks.apps.anexplorer.misc.ConnectionUtils.ACTION_FTPSERVER_S
 import static dev.dworks.apps.anexplorer.misc.ConnectionUtils.ACTION_START_FTPSERVER;
 import static dev.dworks.apps.anexplorer.misc.ConnectionUtils.ACTION_STOP_FTPSERVER;
 import static dev.dworks.apps.anexplorer.misc.Utils.EXTRA_ROOT;
-import static dev.dworks.apps.anexplorer.misc.Utils.isWatch;
 
 public class ServerFragment extends Fragment implements View.OnClickListener {
 
@@ -64,20 +64,19 @@ public class ServerFragment extends Fragment implements View.OnClickListener {
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
-        return  inflater.inflate(R.layout.fragment_server,container,false);
+        return inflater.inflate(R.layout.fragment_server, container, false);
     }
 
     @Override
     public void onViewCreated(View view, Bundle savedInstanceState) {
-        status =(TextView) view.findViewById(R.id.status);
-        username =(TextView) view.findViewById(R.id.username);
-        password =(TextView) view.findViewById(R.id.password);
-        path = (TextView) view.findViewById(R.id.path);
-        address = (TextView) view.findViewById(R.id.address);
-        warning = (TextView) view.findViewById(R.id.warning);
-        action = (Button) view.findViewById(R.id.action);
+        status = view.findViewById(R.id.status);
+        username = view.findViewById(R.id.username);
+        password = view.findViewById(R.id.password);
+        path = view.findViewById(R.id.path);
+        address = view.findViewById(R.id.address);
+        warning = view.findViewById(R.id.warning);
+        action = view.findViewById(R.id.action);
         action.setOnClickListener(this);
-
     }
 
     @Override
@@ -93,41 +92,51 @@ public class ServerFragment extends Fragment implements View.OnClickListener {
     }
 
     @Override
-    public void onResume(){
+    public void onResume() {
         super.onResume();
         updateStatus();
-        IntentFilter wifiFilter = new IntentFilter();
-        wifiFilter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
-        getActivity().registerReceiver(mWifiReceiver, wifiFilter);
+
+        IntentFilter wifiFilter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
+        ContextCompat.registerReceiver(
+                getActivity(),
+                mWifiReceiver,
+                wifiFilter,
+                ContextCompat.RECEIVER_EXPORTED);
 
         IntentFilter ftpFilter = new IntentFilter();
         ftpFilter.addAction(ACTION_FTPSERVER_STARTED);
         ftpFilter.addAction(ACTION_FTPSERVER_STOPPED);
         ftpFilter.addAction(ACTION_FTPSERVER_FAILEDTOSTART);
-        getActivity().registerReceiver(mFtpReceiver, ftpFilter);
+        ContextCompat.registerReceiver(
+                getActivity(),
+                mFtpReceiver,
+                ftpFilter,
+                ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     @Override
-    public void onPause(){
+    public void onPause() {
         super.onPause();
-        getActivity().unregisterReceiver(mWifiReceiver);
-        getActivity().unregisterReceiver(mFtpReceiver);
-    }
-
-    @Override
-    public  void onDestroy(){
-        super.onDestroy();
+        try {
+            getActivity().unregisterReceiver(mWifiReceiver);
+        } catch (IllegalArgumentException ignored) {
+        }
+        try {
+            getActivity().unregisterReceiver(mFtpReceiver);
+        } catch (IllegalArgumentException ignored) {
+        }
     }
 
     private void startServer() {
         Intent intent = new Intent(ACTION_START_FTPSERVER);
+        intent.setPackage(getActivity().getPackageName());
         intent.putExtras(getArguments());
 
-        if(DocumentsApplication.isWatch()) {
+        if (DocumentsApplication.isWatch()) {
             Intent serverService = new Intent(getActivity(), ConnectionsService.class);
             serverService.putExtras(intent.getExtras());
             if (!ConnectionUtils.isServerRunning(getActivity())) {
-                getActivity().startService(serverService);
+                ContextCompat.startForegroundService(getActivity(), serverService);
             }
         } else {
             getActivity().sendBroadcast(intent);
@@ -136,9 +145,10 @@ public class ServerFragment extends Fragment implements View.OnClickListener {
 
     private void stopServer() {
         Intent intent = new Intent(ACTION_STOP_FTPSERVER);
+        intent.setPackage(getActivity().getPackageName());
         intent.putExtras(getArguments());
 
-        if(DocumentsApplication.isWatch()){
+        if (DocumentsApplication.isWatch()) {
             Intent serverService = new Intent(getActivity(), ConnectionsService.class);
             serverService.putExtras(intent.getExtras());
             getActivity().stopService(serverService);
@@ -147,12 +157,12 @@ public class ServerFragment extends Fragment implements View.OnClickListener {
         }
     }
 
-    private void updateStatus(){
+    private void updateStatus() {
         setStatus(ConnectionUtils.isServerRunning(getActivity()));
     }
 
-    private void setStatus(boolean running){
-        if(running){
+    private void setStatus(boolean running) {
+        if (running) {
             setText(address, ConnectionUtils.getFTPAddress(getActivity()));
             status.setText(getString(R.string.ftp_status_running));
             action.setText(R.string.stop_ftp);
@@ -163,33 +173,28 @@ public class ServerFragment extends Fragment implements View.OnClickListener {
             action.setText(R.string.start_ftp);
         }
     }
+
     @Override
     public void onClick(View view) {
-        switch (view.getId()){
-            case R.id.action:
-                if(!ConnectionUtils.isServerRunning(getActivity())){
-                    if(ConnectionUtils.isConnectedToWifi(getActivity()))
-                        startServer();
-                    else
-                        setText(warning, getString(R.string.ftp_no_wifi));
+        if (view.getId() == R.id.action) {
+            if (!ConnectionUtils.isServerRunning(getActivity())) {
+                if (ConnectionUtils.isConnectedToLocalNetwork(getActivity())) {
+                    startServer();
+                } else {
+                    setText(warning, getString(R.string.ftp_no_wifi));
                 }
-                else{
-                    stopServer();
-                }
-                break;
+            } else {
+                stopServer();
+            }
         }
     }
 
-    private BroadcastReceiver mWifiReceiver = new  BroadcastReceiver() {
-
+    private final BroadcastReceiver mWifiReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            ConnectivityManager conMan = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-            NetworkInfo netInfo = conMan.getActiveNetworkInfo();
-            if (netInfo != null && netInfo.getType() == ConnectivityManager.TYPE_WIFI){
+            if (ConnectionUtils.isConnectedToLocalNetwork(context)) {
                 setText(warning, "");
-            }
-            else{
+            } else {
                 stopServer();
                 setStatus(false);
                 setText(address, "");
@@ -198,29 +203,27 @@ public class ServerFragment extends Fragment implements View.OnClickListener {
         }
     };
 
-    private BroadcastReceiver mFtpReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver mFtpReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-        String action = intent.getAction();
-        if(action == ACTION_FTPSERVER_STARTED) {
-            setStatus(true);
-        }
-        else if(action == ACTION_FTPSERVER_FAILEDTOSTART){
-            setStatus(false);
-            setText(warning, "Oops! Something went wrong");
-        }
-        else if(action == ACTION_FTPSERVER_STOPPED){
-            setStatus(false);
-        }
+            String receivedAction = intent.getAction();
+            if (ACTION_FTPSERVER_STARTED.equals(receivedAction)) {
+                setStatus(true);
+            } else if (ACTION_FTPSERVER_FAILEDTOSTART.equals(receivedAction)) {
+                setStatus(false);
+                setText(warning, "Oops! Something went wrong");
+            } else if (ACTION_FTPSERVER_STOPPED.equals(receivedAction)) {
+                setStatus(false);
+            }
         }
     };
 
-    private void setTintedImage(ImageView imageview, int resourceId){
-        imageview.setImageDrawable(IconUtils.applyTintAttr(getActivity(), resourceId,
-                android.R.attr.textColorPrimary));
+    private void setTintedImage(ImageView imageview, int resourceId) {
+        imageview.setImageDrawable(IconUtils.applyTintAttr(
+                getActivity(), resourceId, android.R.attr.textColorPrimary));
     }
 
-    private void setText(TextView textView, String text){
+    private void setText(TextView textView, String text) {
         textView.setText(text);
         textView.setVisibility(TextUtils.isEmpty(text) ? View.GONE : View.VISIBLE);
     }
