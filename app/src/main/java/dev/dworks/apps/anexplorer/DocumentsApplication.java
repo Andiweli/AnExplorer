@@ -27,9 +27,12 @@ import android.content.IntentFilter;
 import android.graphics.Point;
 import android.net.Uri;
 import android.os.RemoteException;
-import androidx.collection.ArrayMap;
-import androidx.appcompat.app.AppCompatDelegate;
+import android.text.TextUtils;
 import android.text.format.DateUtils;
+
+import androidx.appcompat.app.AppCompatDelegate;
+import androidx.collection.ArrayMap;
+import androidx.core.content.ContextCompat;
 
 import com.cloudrail.si.CloudRail;
 
@@ -43,7 +46,7 @@ import dev.dworks.apps.anexplorer.misc.Utils;
 import dev.dworks.apps.anexplorer.setting.SettingsActivity;
 
 public class DocumentsApplication extends AppFlavour {
-	private static final long PROVIDER_ANR_TIMEOUT = 20 * DateUtils.SECOND_IN_MILLIS;
+    private static final long PROVIDER_ANR_TIMEOUT = 20 * DateUtils.SECOND_IN_MILLIS;
     private static DocumentsApplication sInstance;
 
     static {
@@ -51,9 +54,8 @@ public class DocumentsApplication extends AppFlavour {
     }
 
     private RootsCache mRoots;
-    private ArrayMap<Integer, Long> mSizes = new ArrayMap<Integer, Long>();
+    private final ArrayMap<Integer, Long> mSizes = new ArrayMap<>();
     private SAFManager mSAFManager;
-    private Point mThumbnailsSize;
     private ThumbnailCache mThumbnailCache;
     private static boolean isTelevision;
     private static boolean isWatch;
@@ -81,7 +83,8 @@ public class DocumentsApplication extends AppFlavour {
 
     public static ContentProviderClient acquireUnstableProviderOrThrow(
             ContentResolver resolver, String authority) throws RemoteException {
-    	final ContentProviderClient client = ContentProviderClientCompat.acquireUnstableContentProviderClient(resolver, authority);
+        final ContentProviderClient client =
+                ContentProviderClientCompat.acquireUnstableContentProviderClient(resolver, authority);
         if (client == null) {
             throw new RemoteException("Failed to acquire provider for " + authority);
         }
@@ -92,20 +95,26 @@ public class DocumentsApplication extends AppFlavour {
     @Override
     public void onCreate() {
         super.onCreate();
-        if(!BuildConfig.DEBUG) {
+
+        if (!BuildConfig.DEBUG) {
             AnalyticsManager.intialize(getApplicationContext());
         }
+
         sInstance = this;
         final ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         final int memoryClassBytes = am.getMemoryClass() * 1024 * 1024;
-        CloudRail.setAppKey(BuildConfig.LICENSE_KEY);
+
+        // The reconstructed source can be built without private CloudRail credentials.
+        // Cloud functions that still use CloudRail are initialized only when a key is supplied.
+        if (!TextUtils.isEmpty(BuildConfig.LICENSE_KEY)) {
+            CloudRail.setAppKey(BuildConfig.LICENSE_KEY);
+        }
+
         CrashReportingManager.enable(getApplicationContext(), true);
 
         mRoots = new RootsCache(this);
         mRoots.updateAsync();
-
         mSAFManager = new SAFManager(this);
-
         mThumbnailCache = new ThumbnailCache(memoryClassBytes / 4);
 
         final IntentFilter packageFilter = new IntentFilter();
@@ -114,15 +123,25 @@ public class DocumentsApplication extends AppFlavour {
         packageFilter.addAction(Intent.ACTION_PACKAGE_REMOVED);
         packageFilter.addAction(Intent.ACTION_PACKAGE_DATA_CLEARED);
         packageFilter.addDataScheme("package");
-        registerReceiver(mCacheReceiver, packageFilter);
+        ContextCompat.registerReceiver(
+                this,
+                mCacheReceiver,
+                packageFilter,
+                ContextCompat.RECEIVER_EXPORTED);
 
         final IntentFilter localeFilter = new IntentFilter();
         localeFilter.addAction(Intent.ACTION_LOCALE_CHANGED);
-        registerReceiver(mCacheReceiver, localeFilter);
+        ContextCompat.registerReceiver(
+                this,
+                mCacheReceiver,
+                localeFilter,
+                ContextCompat.RECEIVER_EXPORTED);
 
         isTelevision = Utils.isTelevision(this);
         isWatch = Utils.isWatch(this);
-        if(isTelevision && Integer.valueOf(SettingsActivity.getThemeStyle()) != AppCompatDelegate.MODE_NIGHT_YES){
+        if (isTelevision
+                && Integer.valueOf(SettingsActivity.getThemeStyle())
+                != AppCompatDelegate.MODE_NIGHT_YES) {
             SettingsActivity.setThemeStyle(AppCompatDelegate.MODE_NIGHT_YES);
         }
     }
@@ -137,7 +156,7 @@ public class DocumentsApplication extends AppFlavour {
         mThumbnailCache.onTrimMemory(level);
     }
 
-    private BroadcastReceiver mCacheReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver mCacheReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             final Uri data = intent.getData();
