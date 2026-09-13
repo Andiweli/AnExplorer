@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Wider persistent navigation rail for AAOS displays with a left system overlay. -->
+    <dimen name="side_navigation_width">360dp</dimen>
+</resources>
