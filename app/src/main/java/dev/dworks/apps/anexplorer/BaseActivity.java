@@ -17,20 +17,20 @@ package dev.dworks.apps.anexplorer;
 
 import android.Manifest;
 import android.app.Fragment;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
-import com.google.android.material.snackbar.Snackbar;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import androidx.collection.ArrayMap;
-import androidx.recyclerview.widget.RecyclerView;
 import android.text.TextUtils;
 import android.util.SparseArray;
 import android.view.View;
-import android.widget.AbsListView;
+
+import androidx.collection.ArrayMap;
+import androidx.core.app.ActivityCompat;
+import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.List;
 
@@ -42,7 +42,6 @@ import dev.dworks.apps.anexplorer.model.DocumentStack;
 import dev.dworks.apps.anexplorer.model.DurableUtils;
 import dev.dworks.apps.anexplorer.model.RootInfo;
 import dev.dworks.apps.anexplorer.provider.ExternalStorageProvider;
-import dev.dworks.apps.anexplorer.setting.SettingsActivity;
 
 public abstract class BaseActivity extends ActionBarActivity {
     public static final String TAG = "Documents";
@@ -69,7 +68,6 @@ public abstract class BaseActivity extends ActionBarActivity {
     public abstract void setUpStatusBar();
     public abstract void setUpDefaultStatusBar();
 
-
     public abstract boolean isShowAsDialog();
     public abstract void upadateActionItems(RecyclerView mCurrentView);
     public abstract void setInfoDrawerOpen(boolean open);
@@ -79,18 +77,13 @@ public abstract class BaseActivity extends ActionBarActivity {
         return (BaseActivity) fragment.getActivity();
     }
 
-    public static class State implements android.os.Parcelable {
+    public static class State implements Parcelable {
         public int action;
         public String[] acceptMimes;
 
-        /** Explicit user choice */
         public int userMode = MODE_UNKNOWN;
-        /** Derived after loader */
         public int derivedMode = MODE_LIST;
-
-        /** Explicit user choice */
         public int userSortOrder = SORT_ORDER_UNKNOWN;
-        /** Derived after loader */
         public int derivedSortOrder = SORT_ORDER_DISPLAY_NAME;
 
         public boolean allowMultiple = false;
@@ -105,12 +98,8 @@ public abstract class BaseActivity extends ActionBarActivity {
         public boolean stackTouched = false;
         public boolean restored = false;
 
-        /** Current user navigation stack; empty implies recents. */
         public DocumentStack stack = new DocumentStack();
-        /** Currently active search, overriding any stack. */
         public String currentSearch;
-
-        /** Instance state for every shown directory */
         public ArrayMap<String, SparseArray<Parcelable>> dirState = new ArrayMap<>();
 
         public static final int ACTION_OPEN = 1;
@@ -197,32 +186,86 @@ public abstract class BaseActivity extends ActionBarActivity {
         };
     }
 
-    public boolean isSAFIssue(String docId){
+    public boolean isSAFIssue(String docId) {
         boolean isSAFIssue = Build.VERSION.SDK_INT == Build.VERSION_CODES.KITKAT
-                && !TextUtils.isEmpty(docId) && docId.startsWith(ExternalStorageProvider.ROOT_ID_SECONDARY);
+                && !TextUtils.isEmpty(docId)
+                && docId.startsWith(ExternalStorageProvider.ROOT_ID_SECONDARY);
 
-        if(isSAFIssue){
+        if (isSAFIssue) {
             Utils.showError(this, R.string.saf_issue);
         }
         return isSAFIssue;
     }
 
-    private static String[] storagePermissions = new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE};
+    private static final String[] STORAGE_PERMISSIONS =
+            new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE};
     public static final int REQUEST_STORAGE = 47;
+    public static final int REQUEST_MANAGE_STORAGE = 48;
 
     protected void requestStoragePermissions() {
-        if(PermissionUtil.hasStoragePermission(this)) {
+        if (PermissionUtil.hasStoragePermission(this)) {
             again();
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            launchManageStorageSettings();
+            return;
+        }
+
+        if (ActivityCompat.shouldShowRequestPermissionRationale(
+                this, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+            Utils.showRetrySnackBar(this,
+                    "Storage permission is needed for file management.",
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            ActivityCompat.requestPermissions(
+                                    BaseActivity.this,
+                                    STORAGE_PERMISSIONS,
+                                    REQUEST_STORAGE);
+                        }
+                    });
         } else {
-            if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
-                Utils.showRetrySnackBar(this, "Storage permissions are needed for Exploring.", new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        ActivityCompat.requestPermissions(BaseActivity.this, storagePermissions, REQUEST_STORAGE);
-                    }
-                });
+            ActivityCompat.requestPermissions(this, STORAGE_PERMISSIONS, REQUEST_STORAGE);
+        }
+    }
+
+    private void launchManageStorageSettings() {
+        Intent intent = PermissionUtil.createManageStorageIntent(this);
+        try {
+            startActivityForResult(intent, REQUEST_MANAGE_STORAGE);
+        } catch (Exception primaryFailure) {
+            Intent fallback = PermissionUtil.createManageStorageFallbackIntent();
+            if (fallback != null) {
+                try {
+                    startActivityForResult(fallback, REQUEST_MANAGE_STORAGE);
+                    return;
+                } catch (Exception ignored) {
+                    // Fall through to the user-facing message below.
+                }
+            }
+            Utils.showRetrySnackBar(this,
+                    "All files access must be enabled in system settings.",
+                    null);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_MANAGE_STORAGE) {
+            if (PermissionUtil.hasStoragePermission(this)) {
+                again();
             } else {
-                ActivityCompat.requestPermissions(this, storagePermissions, REQUEST_STORAGE);
+                Utils.showRetrySnackBar(this,
+                        "All files access was not granted.",
+                        new View.OnClickListener() {
+                            @Override
+                            public void onClick(View v) {
+                                requestStoragePermissions();
+                            }
+                        });
             }
         }
     }
@@ -230,18 +273,19 @@ public abstract class BaseActivity extends ActionBarActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode) {
-            case REQUEST_STORAGE: {
-                if (grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    again();
-                } else {
-                    Utils.showRetrySnackBar(this, "Permission grating failed", null);
-                    requestStoragePermissions();
-                }
-                return;
+        if (requestCode == REQUEST_STORAGE) {
+            if (PermissionUtil.verifyPermissions(grantResults)) {
+                again();
+            } else {
+                Utils.showRetrySnackBar(this,
+                        "Storage permission was not granted.",
+                        new View.OnClickListener() {
+                            @Override
+                            public void onClick(View v) {
+                                requestStoragePermissions();
+                            }
+                        });
             }
         }
     }
-
 }
