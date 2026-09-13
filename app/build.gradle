@@ -59,7 +59,7 @@ android {
         }
         automotive {
             dimension 'platform'
-            targetSdk 35
+            targetSdk 36
             versionNameSuffix '-aaos'
         }
     }
