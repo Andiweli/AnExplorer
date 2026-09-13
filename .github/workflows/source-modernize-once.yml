@@ -33,6 +33,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/src/main/java/dev/dworks/apps/anexplorer/provider/UsbStorageProvider.java
           git add app/src/main/java/dev/dworks/apps/anexplorer/provider/ExternalStorageProvider.java
+          git add app/src/main/java/dev/dworks/apps/anexplorer/misc/StorageUtils.java
           git add app/src/main/java/dev/dworks/apps/anexplorer/setting/SettingsActivity.java
           git commit -m "Modernize USB, storage and settings runtime behavior"
           git push origin HEAD:aaos-modern
