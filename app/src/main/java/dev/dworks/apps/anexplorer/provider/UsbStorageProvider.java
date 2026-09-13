@@ -577,7 +577,9 @@ public class UsbStorageProvider extends DocumentsProvider {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-            String deviceName = usbDevice.getDeviceName();
+            if (usbDevice == null) {
+                return;
+            }
             if (UsbStorageProvider.ACTION_USB_PERMISSION.equals(action)) {
                 boolean permission = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
                 if (permission) {
