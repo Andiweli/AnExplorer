@@ -1,0 +1,41 @@
+name: AAOS Modern Build
+
+on:
+  push:
+    branches: [ aaos-modern ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 36 SDK
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Build mobile and automotive debug APKs
+        run: ./gradlew --stacktrace :app:assembleMobileDebug :app:assembleAutomotiveDebug
+
+      - name: Upload build outputs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anexplorer-modern-debug
+          path: app/build/outputs/apk/**/debug/*.apk
+          if-no-files-found: error
