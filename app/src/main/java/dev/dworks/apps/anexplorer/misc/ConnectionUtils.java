@@ -4,13 +4,19 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.wifi.WifiManager;
+import android.os.Build;
 import android.util.Log;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
@@ -24,100 +30,159 @@ import dev.dworks.apps.anexplorer.BuildConfig;
 import dev.dworks.apps.anexplorer.provider.NetworkStorageProvider;
 import dev.dworks.apps.anexplorer.service.ConnectionsService;
 
-/**
- * Created by HaKr on 05/09/16.
- */
-
+/** Network helpers shared by the FTP and network-storage features. */
 public class ConnectionUtils {
 
     public static final String TAG = ConnectionUtils.class.getSimpleName();
 
-    static public final String ACTION_FTPSERVER_STARTED = BuildConfig.APPLICATION_ID + ".action.FTPSERVER_STARTED";
-    static public final String ACTION_FTPSERVER_STOPPED = BuildConfig.APPLICATION_ID + ".action.FTPSERVER_STOPPED";
-    static public final String ACTION_FTPSERVER_FAILEDTOSTART = BuildConfig.APPLICATION_ID + ".action.FTPSERVER_FAILEDTOSTART";
+    public static final String ACTION_FTPSERVER_STARTED = BuildConfig.APPLICATION_ID + ".action.FTPSERVER_STARTED";
+    public static final String ACTION_FTPSERVER_STOPPED = BuildConfig.APPLICATION_ID + ".action.FTPSERVER_STOPPED";
+    public static final String ACTION_FTPSERVER_FAILEDTOSTART = BuildConfig.APPLICATION_ID + ".action.FTPSERVER_FAILEDTOSTART";
 
-    static public final String ACTION_START_FTPSERVER = BuildConfig.APPLICATION_ID + ".action.START_FTPSERVER";
-    static public final String ACTION_STOP_FTPSERVER = BuildConfig.APPLICATION_ID + ".action.STOP_FTPSERVER";
+    public static final String ACTION_START_FTPSERVER = BuildConfig.APPLICATION_ID + ".action.START_FTPSERVER";
+    public static final String ACTION_STOP_FTPSERVER = BuildConfig.APPLICATION_ID + ".action.STOP_FTPSERVER";
 
     public static int FTP_SERVER_PORT = 2211;
 
+    /**
+     * Returns true for a currently active Wi-Fi or Ethernet network. Tethering interfaces are
+     * checked as a fallback because an access-point interface is not necessarily Android's
+     * active network.
+     */
     public static boolean isConnectedToLocalNetwork(Context context) {
-        boolean connected = false;
-        ConnectivityManager cm = (ConnectivityManager) context
-                .getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo ni = cm.getActiveNetworkInfo();
-        connected = ni != null
-                && ni.isConnected()
-                && (ni.getType() & (ConnectivityManager.TYPE_WIFI
-                | ConnectivityManager.TYPE_ETHERNET)) != 0;
+        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network active = cm.getActiveNetwork();
+                NetworkCapabilities caps = active != null ? cm.getNetworkCapabilities(active) : null;
+                if (caps != null && (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                        || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) {
+                    return true;
+                }
+            } else {
+                //noinspection deprecation
+                NetworkInfo ni = cm.getActiveNetworkInfo();
+                //noinspection deprecation
+                if (ni != null && ni.isConnected()
+                        && (ni.getType() == ConnectivityManager.TYPE_WIFI
+                        || ni.getType() == ConnectivityManager.TYPE_ETHERNET)) {
+                    return true;
+                }
+            }
+        }
 
-        if (!connected) {
-            Log.d(TAG, "isConnectedToLocalNetwork: see if it is an WIFI AP");
-            WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+        // Legacy hotspot APIs are hidden, but still useful on older vendor builds.
+        WifiManager wm = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wm != null) {
             try {
                 Method method = wm.getClass().getDeclaredMethod("isWifiApEnabled");
-                connected = (Boolean) method.invoke(wm);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-        if (!connected) {
-            Log.d(TAG, "isConnectedToLocalNetwork: see if it is an USB AP");
-            try {
-                for (NetworkInterface netInterface : Collections.list(NetworkInterface
-                        .getNetworkInterfaces())) {
-                    if (netInterface.getDisplayName().startsWith("rndis")) {
-                        connected = true;
-                    }
+                method.setAccessible(true);
+                if (Boolean.TRUE.equals(method.invoke(wm))) {
+                    return true;
                 }
-            } catch (SocketException e) {
-                e.printStackTrace();
+            } catch (Exception ignored) {
+                // Vendor may not expose the legacy hotspot API; interface detection below remains.
             }
-        }
-        return connected;
-    }
-
-
-    public static boolean isConnectedToWifi(Context context) {
-
-        ConnectivityManager cm = (ConnectivityManager) context
-                .getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo ni = cm.getActiveNetworkInfo();
-        return ni != null && ni.isConnected()
-                && ni.getType() == ConnectivityManager.TYPE_WIFI;
-    }
-
-    public static InetAddress getLocalInetAddress(Context context) {
-        if (!isConnectedToLocalNetwork(context)) {
-            Log.e(TAG, "getLocalInetAddress called and no connection");
-            return null;
-        }
-
-        if (isConnectedToWifi(context)) {
-
-            WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-            int ipAddress = wm.getConnectionInfo().getIpAddress();
-            if (ipAddress == 0)
-                return null;
-            return intToInet(ipAddress);
         }
 
         try {
-            Enumeration<NetworkInterface> netinterfaces = NetworkInterface
-                    .getNetworkInterfaces();
-            while (netinterfaces.hasMoreElements()) {
-                NetworkInterface netinterface = netinterfaces.nextElement();
-                Enumeration<InetAddress> adresses = netinterface.getInetAddresses();
-                while (adresses.hasMoreElements()) {
-                    InetAddress address = adresses.nextElement();
-                    // this is the condition that sometimes gives problems
-                    if (!address.isLoopbackAddress()
-                            && !address.isLinkLocalAddress())
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            if (interfaces != null) {
+                for (NetworkInterface netInterface : Collections.list(interfaces)) {
+                    if (!netInterface.isUp() || netInterface.isLoopback()) {
+                        continue;
+                    }
+                    String name = netInterface.getName() == null ? "" : netInterface.getName().toLowerCase();
+                    String display = netInterface.getDisplayName() == null
+                            ? "" : netInterface.getDisplayName().toLowerCase();
+                    if (name.startsWith("rndis") || display.startsWith("rndis")
+                            || name.startsWith("wlan") || name.startsWith("ap")
+                            || name.startsWith("eth")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            Log.w(TAG, "Unable to enumerate network interfaces", e);
+        }
+        return false;
+    }
+
+    public static boolean isConnectedToWifi(Context context) {
+        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) {
+            return false;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Network active = cm.getActiveNetwork();
+            NetworkCapabilities caps = active != null ? cm.getNetworkCapabilities(active) : null;
+            return caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+        }
+        //noinspection deprecation
+        NetworkInfo ni = cm.getActiveNetworkInfo();
+        //noinspection deprecation
+        return ni != null && ni.isConnected() && ni.getType() == ConnectivityManager.TYPE_WIFI;
+    }
+
+    /** Finds a usable IPv4 address without relying on deprecated WifiInfo APIs. */
+    public static InetAddress getLocalInetAddress(Context context) {
+        if (!isConnectedToLocalNetwork(context)) {
+            Log.e(TAG, "getLocalInetAddress called and no local connection is available");
+            return null;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                Network active = cm.getActiveNetwork();
+                NetworkCapabilities caps = active != null ? cm.getNetworkCapabilities(active) : null;
+                if (active != null && caps != null
+                        && (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                        || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) {
+                    LinkProperties properties = cm.getLinkProperties(active);
+                    InetAddress address = firstUsableIpv4(properties);
+                    if (address != null) {
                         return address;
+                    }
+                }
+            }
+        }
+
+        try {
+            Enumeration<NetworkInterface> netinterfaces = NetworkInterface.getNetworkInterfaces();
+            if (netinterfaces != null) {
+                for (NetworkInterface netinterface : Collections.list(netinterfaces)) {
+                    if (!netinterface.isUp() || netinterface.isLoopback()) {
+                        continue;
+                    }
+                    Enumeration<InetAddress> addresses = netinterface.getInetAddresses();
+                    while (addresses.hasMoreElements()) {
+                        InetAddress address = addresses.nextElement();
+                        if (address instanceof Inet4Address
+                                && !address.isLoopbackAddress()
+                                && !address.isLinkLocalAddress()) {
+                            return address;
+                        }
+                    }
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.w(TAG, "Unable to determine local IP address", e);
+        }
+        return null;
+    }
+
+    private static InetAddress firstUsableIpv4(LinkProperties properties) {
+        if (properties == null) {
+            return null;
+        }
+        for (LinkAddress linkAddress : properties.getLinkAddresses()) {
+            InetAddress address = linkAddress.getAddress();
+            if (address instanceof Inet4Address
+                    && !address.isLoopbackAddress()
+                    && !address.isLinkLocalAddress()) {
+                return address;
+            }
         }
         return null;
     }
@@ -130,7 +195,6 @@ public class ConnectionUtils {
         try {
             return InetAddress.getByAddress(bytes);
         } catch (UnknownHostException e) {
-            // This only happens if the byte array has a bad length
             return null;
         }
     }
@@ -141,7 +205,6 @@ public class ConnectionUtils {
     }
 
     public static boolean isPortAvailable(int port) {
-
         ServerSocket ss = null;
         DatagramSocket ds = null;
         try {
@@ -150,58 +213,60 @@ public class ConnectionUtils {
             ds = new DatagramSocket(port);
             ds.setReuseAddress(true);
             return true;
-        } catch (IOException e) {
+        } catch (IOException ignored) {
         } finally {
             if (ds != null) {
                 ds.close();
             }
-
             if (ss != null) {
                 try {
                     ss.close();
-                } catch (IOException e) {
-                /* should not be thrown */
+                } catch (IOException ignored) {
                 }
             }
         }
-
         return false;
     }
 
-    public static String getFTPAddress(Context context){
+    public static String getFTPAddress(Context context) {
         InetAddress inetAddress = getLocalInetAddress(context);
-        if(null != inetAddress) {
+        if (inetAddress != null) {
             return "ftp://" + inetAddress.getHostAddress() + ":" + FTP_SERVER_PORT;
         }
         return "";
     }
 
-    public static int getAvailablePortForFTP(){
-        int port = 0;
-        for(int i = FTP_SERVER_PORT ;i<65000;i++){
-            if(isPortAvailable(i)) {
-                port = i;
-                break;
+    public static int getAvailablePortForFTP() {
+        for (int i = FTP_SERVER_PORT; i < 65000; i++) {
+            if (isPortAvailable(i)) {
+                return i;
             }
         }
-        return port;
+        return 0;
     }
 
+    /**
+     * Android restricts process/service visibility on modern releases. This API is retained only
+     * to query our own process, which Android still exposes to the caller.
+     */
+    @SuppressWarnings("deprecation")
     public static boolean isServerRunning(Context context) {
         ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager == null) {
+            return false;
+        }
         List<ActivityManager.RunningServiceInfo> runningServices = manager.getRunningServices(Integer.MAX_VALUE);
         String ftpServiceClassName = ConnectionsService.class.getName();
         for (ActivityManager.RunningServiceInfo service : runningServices) {
-            String currentClassName = service.service.getClassName();
-            if (ftpServiceClassName.equals(currentClassName)) {
+            if (service.service != null && ftpServiceClassName.equals(service.service.getClassName())) {
                 return true;
             }
         }
         return false;
     }
 
-    public static boolean isServerAuthority(Intent intent){
-        if(null != intent.getData()){
+    public static boolean isServerAuthority(Intent intent) {
+        if (intent != null && intent.getData() != null) {
             String authority = intent.getData().getAuthority();
             return NetworkStorageProvider.AUTHORITY.equals(authority);
         }
