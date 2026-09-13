@@ -183,7 +183,7 @@ public class SettingsActivity extends SettingsCommonActivity {
     }
 	
     public static final boolean isPinProtected(Context context) {
-        return PreferenceManager.getDefaultSharedPreferences(context).getString(KEY_PIN, "") != "";
+        return !TextUtils.isEmpty(PreferenceManager.getDefaultSharedPreferences(context).getString(KEY_PIN, ""));
     }
     
     public static void setPin(Context context, String pin) {

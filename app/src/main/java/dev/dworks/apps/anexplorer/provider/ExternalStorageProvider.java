@@ -781,7 +781,13 @@ public class ExternalStorageProvider extends StorageProvider {
         final MatrixCursor result = new DirectoryCursor(
                 resolveDocumentProjection(projection), parentDocumentId, parent);
         updateSettings();
-        for (File file : parent.listFiles()) {
+        final File[] children = parent.listFiles();
+        if (children == null) {
+            // The directory may temporarily be unavailable or access may not yet have been
+            // granted. Return an empty cursor instead of crashing the provider process.
+            return result;
+        }
+        for (File file : children) {
             includeFile(result, null, file);
         }
         return result;

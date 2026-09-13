@@ -29,6 +29,7 @@ import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 import android.support.provider.DocumentFile;
 import androidx.collection.ArrayMap;
+import androidx.core.content.ContextCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.LruCache;
@@ -78,7 +79,7 @@ public class UsbStorageProvider extends DocumentsProvider {
     /**
      * Action string to request the permission to communicate with an UsbDevice.
      */
-    private static final String ACTION_USB_PERMISSION = "dev.dworks.apps.anexplorer.action.USB_PERMISSION";
+    private static final String ACTION_USB_PERMISSION = BuildConfig.APPLICATION_ID + ".action.USB_PERMISSION";
 
     private static final String[] DEFAULT_ROOT_PROJECTION = new String[] {
             Root.COLUMN_ROOT_ID, Root.COLUMN_FLAGS, Root.COLUMN_ICON, Root.COLUMN_TITLE,
@@ -112,11 +113,23 @@ public class UsbStorageProvider extends DocumentsProvider {
         updateSettings();
         usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
 
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(ACTION_USB_PERMISSION);
-        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
-        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
-        context.registerReceiver(mUsbReceiver, filter);
+        // Keep the app-private USB permission callback separate from system USB broadcasts.
+        // Android 13+ requires an explicit exported/not-exported choice for dynamic receivers.
+        IntentFilter permissionFilter = new IntentFilter(ACTION_USB_PERMISSION);
+        ContextCompat.registerReceiver(
+                context,
+                mUsbReceiver,
+                permissionFilter,
+                ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        IntentFilter systemFilter = new IntentFilter();
+        systemFilter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        systemFilter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        ContextCompat.registerReceiver(
+                context,
+                mUsbReceiver,
+                systemFilter,
+                ContextCompat.RECEIVER_EXPORTED);
 
         updateRoots();
         return true;
@@ -586,8 +599,13 @@ public class UsbStorageProvider extends DocumentsProvider {
     }
 
     public void requestPermission(UsbDevice device){
-        PendingIntent permissionIntent = PendingIntent.getBroadcast(getContext(), 0, new Intent(
-                ACTION_USB_PERMISSION), 0);
+        Intent permissionResult = new Intent(ACTION_USB_PERMISSION)
+                .setPackage(getContext().getPackageName());
+        PendingIntent permissionIntent = PendingIntent.getBroadcast(
+                getContext(),
+                0,
+                permissionResult,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         usbManager.requestPermission(device, permissionIntent);
     }
 
