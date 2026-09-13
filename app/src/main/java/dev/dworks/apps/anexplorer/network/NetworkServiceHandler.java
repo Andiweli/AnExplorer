@@ -43,7 +43,6 @@ public class NetworkServiceHandler extends Handler {
         int toDo = msg.arg1;
         if (toDo == NetworkServerService.MSG_START) {
             handleStart(service);
-
         } else if (toDo == NetworkServerService.MSG_STOP) {
             handleStop(service);
         }
@@ -51,37 +50,38 @@ public class NetworkServiceHandler extends Handler {
 
     protected void handleStart(NetworkServerService service) {
         if (service.getServer() == null) {
-            LogUtils.LOGD(TAG, "starting {} server");
+            LogUtils.LOGD(TAG, "starting server");
 
             boolean started = service.launchServer();
             if (started && service.getServer() != null) {
                 sendBroadcast(service, ACTION_FTPSERVER_STARTED);
-                if(null == service.getRootInfo()) {
+                if (service.getRootInfo() == null) {
                     Context context = service.getApplicationContext();
                     String contentTitle = context.getString(R.string.ftp_notif_title)
-                            + " \n " + String.format(context.getString(R.string.ftp_notif_text),
+                            + " \n " + String.format(
+                            context.getString(R.string.ftp_notif_text),
                             ConnectionUtils.getFTPAddress(context));
                     Toast.makeText(context, contentTitle, Toast.LENGTH_LONG).show();
                 }
             } else {
                 service.stopSelf();
             }
-
         }
     }
 
     protected void handleStop(NetworkServerService service) {
         if (service.getServer() != null) {
-            LogUtils.LOGD(TAG, "stopping {} server");
+            LogUtils.LOGD(TAG, "stopping server");
             service.stopServer();
         }
-        LogUtils.LOGD(TAG, "stopSelf ({})");
-        service.stopSelf();
+        LogUtils.LOGD(TAG, "stopSelf");
         sendBroadcast(service, ACTION_FTPSERVER_STOPPED);
+        service.stopSelf();
     }
 
-    private void sendBroadcast(NetworkServerService service, String action){
+    private void sendBroadcast(NetworkServerService service, String action) {
         Intent intent = new Intent(action);
+        intent.setPackage(service.getPackageName());
         Bundle args = new Bundle();
         args.putParcelable(EXTRA_ROOT, service.getRootInfo());
         intent.putExtras(args);
