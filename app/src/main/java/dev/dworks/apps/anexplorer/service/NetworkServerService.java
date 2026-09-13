@@ -2,6 +2,7 @@ package dev.dworks.apps.anexplorer.service;
 
 import android.app.Service;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -11,11 +12,13 @@ import android.os.Process;
 
 import dev.dworks.apps.anexplorer.misc.CrashReportingManager;
 import dev.dworks.apps.anexplorer.misc.LogUtils;
+import dev.dworks.apps.anexplorer.misc.NotificationUtils;
 import dev.dworks.apps.anexplorer.model.RootInfo;
 import dev.dworks.apps.anexplorer.network.NetworkConnection;
 import dev.dworks.apps.anexplorer.network.NetworkServiceHandler;
 
 import static dev.dworks.apps.anexplorer.misc.ConnectionUtils.ACTION_FTPSERVER_FAILEDTOSTART;
+import static dev.dworks.apps.anexplorer.misc.NotificationUtils.FTP_NOTIFICATION_ID;
 import static dev.dworks.apps.anexplorer.misc.Utils.EXTRA_ROOT;
 
 public abstract class NetworkServerService extends Service {
@@ -25,6 +28,7 @@ public abstract class NetworkServerService extends Service {
     public static final int MSG_STOP = 2;
 
     private Looper serviceLooper;
+    private HandlerThread serviceThread;
     private NetworkServiceHandler serviceHandler;
     private NetworkConnection networkConnection;
     private RootInfo root;
@@ -42,7 +46,9 @@ public abstract class NetworkServerService extends Service {
     protected void handleServerStartError(Exception e) {
         LogUtils.LOGD(TAG, "could not start server", e);
         CrashReportingManager.logException(e);
-        sendBroadcast(new Intent(ACTION_FTPSERVER_FAILEDTOSTART));
+        Intent error = new Intent(ACTION_FTPSERVER_FAILEDTOSTART);
+        error.setPackage(getPackageName());
+        sendBroadcast(error);
     }
 
     @Override
@@ -52,47 +58,63 @@ public abstract class NetworkServerService extends Service {
 
     @Override
     public void onCreate() {
-        HandlerThread thread = new HandlerThread(
+        super.onCreate();
+        serviceThread = new HandlerThread(
                 "ServiceStartArguments",
                 Process.THREAD_PRIORITY_BACKGROUND);
-        thread.start();
+        serviceThread.start();
 
-        serviceLooper = thread.getLooper();
+        serviceLooper = serviceThread.getLooper();
         serviceHandler = createServiceHandler(serviceLooper, this);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // Android O+ requires a service started through startForegroundService() to enter the
+        // foreground within a few seconds. Do this before launching the FTP stack.
+        startForeground(FTP_NOTIFICATION_ID, NotificationUtils.buildFtpNotification(this, intent));
+
         if (intent == null) {
             LogUtils.LOGD(TAG, "intent is null in onStartCommand()");
-            return START_REDELIVER_INTENT;
+            networkConnection = NetworkConnection.getDefaultServer(getApplicationContext());
+            root = null;
+        } else {
+            Bundle extras = intent.getExtras();
+            root = extras != null ? extras.getParcelable(EXTRA_ROOT) : null;
+            if (root == null) {
+                networkConnection = NetworkConnection.getDefaultServer(getApplicationContext());
+            } else {
+                networkConnection = NetworkConnection.fromRootInfo(getApplicationContext(), root);
+            }
         }
 
-        // get parameters
-        Bundle extras = intent.getExtras();
-        root = extras.getParcelable(EXTRA_ROOT);
-        if(null == root){
-            networkConnection = NetworkConnection.getDefaultServer(getApplicationContext());
-        } else {
-            networkConnection = NetworkConnection.fromRootInfo(getApplicationContext(), root);
-        }
-        // send start message (to handler)
         Message msg = serviceHandler.obtainMessage();
         msg.arg1 = MSG_START;
         serviceHandler.sendMessage(msg);
 
-
-        // we don't want the system to kill the ftp server
-        //return START_NOT_STICKY;
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        // send stop message (to handler)
-        Message msg = serviceHandler.obtainMessage();
-        msg.arg1 = MSG_STOP;
-        serviceHandler.sendMessage(msg);
+        if (serviceHandler != null) {
+            Message msg = serviceHandler.obtainMessage();
+            msg.arg1 = MSG_STOP;
+            serviceHandler.sendMessage(msg);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            //noinspection deprecation
+            stopForeground(true);
+        }
+
+        if (serviceThread != null) {
+            serviceThread.quitSafely();
+            serviceThread = null;
+        }
+        super.onDestroy();
     }
 
     public RootInfo getRootInfo() {
