@@ -1,16 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="dev.dworks.apps.anexplorer"
     android:installLocation="auto">
 
+    <!-- Internal provider permission used by AnExplorer's own document providers. -->
     <permission
         android:name="android.permission.MANAGE_DOCUMENT"
         android:protectionLevel="signature" />
 
     <uses-permission android:name="android.permission.MANAGE_DOCUMENT" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <!-- Legacy storage permissions are kept only for Android versions where they still apply. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
+    <!-- File-manager access on Android 11+; this is a restricted Play permission and is intentional for a file manager. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <uses-permission android:name="android.permission.ACCESS_SUPERUSER" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -18,6 +29,11 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <!-- Required by the built-in FTP server on current Android versions. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature
         android:name="android.hardware.touchscreen"
@@ -31,7 +47,6 @@
     <uses-feature
         android:name="android.hardware.wifi"
         android:required="false" />
-
     <uses-feature
         android:name="android.hardware.type.pc"
         android:required="false" />
@@ -43,124 +58,120 @@
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
         android:label="@string/name"
-        tools:replace="android:label"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        tools:replace="android:label">
 
-        <meta-data android:name="WindowManagerPreference:FreeformWindowSize"
+        <meta-data
+            android:name="WindowManagerPreference:FreeformWindowSize"
             android:value="[phone|tablet|maximize]" />
-        <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation"
+        <meta-data
+            android:name="WindowManagerPreference:FreeformWindowOrientation"
             android:value="[portrait|landscape]" />
 
-        <!-- TODO: allow rotation when state saving is in better shape -->
         <activity
             android:name=".DocumentsActivity"
-            android:theme="@style/DocumentsTheme.Splash"
-            android:launchMode="singleTask">
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/DocumentsTheme.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.OPEN_DOCUMENT" />
-
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.OPENABLE" />
-
                 <data android:mimeType="*/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.CREATE_DOCUMENT" />
-
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.OPENABLE" />
-
                 <data android:mimeType="*/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.GET_CONTENT" />
-
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.OPENABLE" />
-
                 <data android:mimeType="*/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.provider.action.MANAGE_ROOT" />
-
                 <category android:name="android.intent.category.DEFAULT" />
-
                 <data android:mimeType="vnd.android.document/root" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
-
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-
-            <!-- For Phones and tablets -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- For TV -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-
-            <!-- For Quick Setting Tiles -->
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
-            <meta-data
-                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
-                android:resource="@xml/device_filter" />
-
             <intent-filter>
                 <data android:scheme="${applicationId}" />
                 <action android:name="android.intent.action.VIEW" />
-
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
             </intent-filter>
 
-            <meta-data android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
+            <meta-data
+                android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
                 android:value="true" />
         </activity>
+
         <activity
             android:name=".StandaloneActivity"
-            android:theme="@style/DocumentsTheme.Document" >
-            <meta-data android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
+            android:exported="false"
+            android:theme="@style/DocumentsTheme.Document">
+            <meta-data
+                android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
                 android:value="true" />
         </activity>
+
         <activity
             android:name=".setting.SettingsActivity"
             android:exported="false"
             android:label="@string/menu_settings"
-            android:theme="@style/DocumentsTheme.Setting" >
-            <meta-data android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
-                android:value="true" />
-        </activity>
-        <activity
-            android:name=".AboutActivity"
-            android:label="About"
-            android:theme="@style/DocumentsTheme.Document" >
-            <meta-data android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
+            android:theme="@style/DocumentsTheme.Setting">
+            <meta-data
+                android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
                 android:value="true" />
         </activity>
 
-        <receiver android:name=".receiver.PackageReceiver">
+        <activity
+            android:name=".AboutActivity"
+            android:exported="false"
+            android:label="About"
+            android:theme="@style/DocumentsTheme.Document">
+            <meta-data
+                android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
+                android:value="true" />
+        </activity>
+
+        <receiver
+            android:name=".receiver.PackageReceiver"
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED" />
                 <action android:name="android.intent.action.PACKAGE_DATA_CLEARED" />
-
                 <data android:scheme="package" />
             </intent-filter>
         </receiver>
-        <receiver android:name=".receiver.MountReceiver">
+
+        <receiver
+            android:name=".receiver.MountReceiver"
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_MOUNTED" />
                 <action android:name="android.intent.action.MEDIA_UNMOUNTED" />
-
                 <data android:scheme="file" />
             </intent-filter>
             <intent-filter>
@@ -171,17 +182,18 @@
         <activity
             android:name=".NoteActivity"
             android:configChanges="keyboardHidden|orientation"
+            android:exported="true"
             android:screenOrientation="sensor"
             android:theme="@style/DocumentsTheme.Note">
-            <intent-filter android:label="Text Viewer"
+            <intent-filter
+                android:label="Text Viewer"
                 tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />
-
                 <category android:name="android.intent.category.DEFAULT" />
-
                 <data android:mimeType="text/*" />
             </intent-filter>
-            <meta-data android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
+            <meta-data
+                android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
                 android:value="true" />
         </activity>
 
@@ -200,9 +212,12 @@
         <service
             android:name=".service.ConnectionsService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <service
             android:name=".service.ServerService"
+            android:exported="true"
             android:icon="@drawable/ic_root_server"
             android:label="@string/toggle_messages"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
@@ -214,8 +229,8 @@
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.ContentProvider"
             android:authorities="${applicationId}.roots"
-            android:exported="false"
-            android:enabled="true"/>
+            android:enabled="true"
+            android:exported="false" />
 
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.RecentsProvider"
@@ -227,6 +242,7 @@
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.ExternalStorageProvider"
             android:authorities="${applicationId}.externalstorage.documents"
@@ -237,6 +253,7 @@
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.MediaDocumentsProvider"
             android:authorities="${applicationId}.media.documents"
@@ -247,6 +264,7 @@
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.NonMediaDocumentsProvider"
             android:authorities="${applicationId}.nonmedia.documents"
@@ -257,6 +275,7 @@
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.AppsProvider"
             android:authorities="${applicationId}.apps.documents"
@@ -267,6 +286,7 @@
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.RootedStorageProvider"
             android:authorities="${applicationId}.rootedstorage.documents"
@@ -281,19 +301,20 @@
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.HeatMapProvider"
             android:authorities="${applicationId}.heatmap.documents"
-            android:exported="false"
             android:enabled="false"
+            android:exported="false"
             android:grantUriPermissions="true"
             android:permission="android.permission.MANAGE_DOCUMENT">
             <intent-filter>
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+
         <provider
             android:name="dev.dworks.apps.anexplorer.provider.DownloadStorageProvider"
             android:authorities="${applicationId}.downloads.documents"
-            android:exported="false"
             android:enabled="false"
+            android:exported="false"
             android:grantUriPermissions="true"
             android:permission="android.permission.MANAGE_DOCUMENT">
             <intent-filter>
@@ -312,7 +333,7 @@
             android:authorities="${applicationId}.usbstorage.documents"
             android:exported="true"
             android:grantUriPermissions="true"
-            android:permission="android.permission.MANAGE_DOCUMENT" >
+            android:permission="android.permission.MANAGE_DOCUMENT">
             <intent-filter>
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
@@ -323,7 +344,7 @@
             android:authorities="${applicationId}.networkstorage.documents"
             android:exported="true"
             android:grantUriPermissions="true"
-            android:permission="android.permission.MANAGE_DOCUMENT" >
+            android:permission="android.permission.MANAGE_DOCUMENT">
             <intent-filter>
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
@@ -334,7 +355,7 @@
             android:authorities="${applicationId}.cloudstorage.documents"
             android:exported="true"
             android:grantUriPermissions="true"
-            android:permission="android.permission.MANAGE_DOCUMENT" >
+            android:permission="android.permission.MANAGE_DOCUMENT">
             <intent-filter>
                 <action android:name="dev.dworks.apps.anexplorer.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
@@ -342,18 +363,20 @@
 
         <activity
             android:name=".common.WebviewActivity"
-            android:theme="@style/DocumentsTheme.Document"
-            android:exported="true"
             android:enabled="true"
-            android:label="@string/app_name">
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/DocumentsTheme.Document">
             <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
+                <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="https"
-                    android:host="integrations.cloudrail.com" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="integrations.cloudrail.com"
+                    android:scheme="https" />
             </intent-filter>
-            <meta-data android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
+            <meta-data
+                android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
                 android:value="true" />
         </activity>
 
