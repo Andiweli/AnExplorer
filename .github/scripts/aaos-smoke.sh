@@ -9,6 +9,8 @@ APK="app/build/outputs/apk/automotive/debug/app-automotive-debug.apk"
 test -f "$APK"
 adb install -r "$APK"
 
+ACTIVITY="com.ast.anexplorer/dev.dworks.apps.anexplorer.AutomotiveDocumentsActivity"
+
 # Grant broad storage access for the first core-launch test so the legacy permission
 # flow cannot hide an unrelated startup crash. A separate no-grant pass follows.
 adb shell appops set com.ast.anexplorer MANAGE_EXTERNAL_STORAGE allow || true
@@ -16,7 +18,7 @@ adb shell pm grant com.ast.anexplorer android.permission.READ_EXTERNAL_STORAGE |
 
 adb logcat -c
 adb shell am force-stop com.ast.anexplorer
-adb shell am start -W -n com.ast.anexplorer/dev.dworks.apps.anexplorer.DocumentsActivity || true
+adb shell am start -W -n "$ACTIVITY" || true
 sleep 8
 
 echo '=== CORE LAUNCH WITH STORAGE ACCESS ==='
@@ -35,7 +37,7 @@ fi
 adb shell am force-stop com.ast.anexplorer
 adb shell appops set com.ast.anexplorer MANAGE_EXTERNAL_STORAGE default || true
 adb logcat -c
-adb shell am start -W -n com.ast.anexplorer/dev.dworks.apps.anexplorer.DocumentsActivity || true
+adb shell am start -W -n "$ACTIVITY" || true
 sleep 5
 
 echo '=== FIRST-RUN LAUNCH WITHOUT ALL-FILES ACCESS ==='
