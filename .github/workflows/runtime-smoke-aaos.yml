@@ -9,6 +9,7 @@ on:
       - 'settings.gradle'
       - 'gradle/**'
       - 'gradle.properties'
+      - '.github/scripts/aaos-smoke.sh'
       - '.github/workflows/runtime-smoke-aaos.yml'
   workflow_dispatch:
 
@@ -41,26 +42,4 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            set -eux
-            chmod +x gradlew
-            ./gradlew --stacktrace :app:assembleAutomotiveDebug
-            APK="app/build/outputs/apk/automotive/debug/app-automotive-debug.apk"
-            adb install -r "$APK"
-            adb shell appops set com.ast.anexplorer MANAGE_EXTERNAL_STORAGE allow || true
-            adb shell pm grant com.ast.anexplorer android.permission.READ_EXTERNAL_STORAGE || true
-            adb logcat -c
-            adb shell am force-stop com.ast.anexplorer
-            adb shell am start -W -n com.ast.anexplorer/dev.dworks.apps.anexplorer.DocumentsActivity
-            sleep 8
-            echo '=== PROCESS ==='
-            adb shell pidof com.ast.anexplorer || true
-            echo '=== TOP ACTIVITY ==='
-            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity|com.ast.anexplorer' | head -80 || true
-            echo '=== RELEVANT LOGCAT ==='
-            adb logcat -d -v threadtime | grep -E 'AndroidRuntime|FATAL EXCEPTION|com\.ast\.anexplorer|dev\.dworks\.apps\.anexplorer|InflateException|SecurityException|NoClassDefFoundError|NoSuchMethodError|VerifyError' | tail -300 || true
-            if ! adb shell pidof com.ast.anexplorer >/dev/null; then
-              echo 'AnExplorer process died after launch.' >&2
-              adb logcat -d -v threadtime | tail -1000
-              exit 1
-            fi
+          script: bash .github/scripts/aaos-smoke.sh
