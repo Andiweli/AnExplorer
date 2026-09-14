@@ -95,9 +95,13 @@ android {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
             }
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            // This source tree was written for the old ProGuard toolchain and still contains
+            // several reflection/provider paths. Keep the first modern AAOS release builds
+            // unshrunk so Play-tested behavior matches the debug runtime we actually validate.
+            // We can re-enable R8 once the remaining legacy paths have been modernized.
+            minifyEnabled false
+            shrinkResources false
         }
     }
 
@@ -132,5 +136,8 @@ dependencies {
     implementation 'androidx.vectordrawable:vectordrawable:1.2.0'
     implementation 'com.google.android.material:material:1.12.0'
 
-    implementation 'com.github.javiersantos:AppUpdater:2.6.5'
+    // The legacy AppUpdater integration predates Automotive and assumes a phone app store.
+    // Keep it for the phone flavor only; the automotive flavor provides a no-op compatibility
+    // shim so the old DocumentsActivity source can compile without launching updater UI on AAOS.
+    mobileImplementation 'com.github.javiersantos:AppUpdater:2.6.5'
 }
