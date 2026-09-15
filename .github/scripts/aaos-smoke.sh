@@ -12,6 +12,17 @@ RELEASE_TEST_APK="/tmp/app-automotive-release-test.apk"
 test -f "$DEBUG_APK"
 test -f "$RELEASE_UNSIGNED"
 
+# Exercise the same wide/landscape resource qualifiers as the Renault 5 display. The vehicle
+# panel is 1280x720 and AnExplorer receives roughly 1168x580 after OEM chrome. A 160 dpi test
+# configuration deliberately selects the sw600dp-land layouts that a phone-sized smoke test
+# never touched.
+adb shell wm size 1280x720
+adb shell wm density 160
+sleep 2
+adb shell wm size
+adb shell wm density
+adb shell dumpsys activity | grep -m 1 'mConfiguration' || true
+
 # Sign the release APK with the standard debug key for CI runtime testing only.
 # Production/release signing remains completely separate.
 mkdir -p "$HOME/.android"
