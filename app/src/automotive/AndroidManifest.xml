@@ -8,21 +8,20 @@
 
     <application
         android:name=".AutomotiveSafeApplication"
-        android:requestLegacyExternalStorage="true"
-        tools:replace="android:name,android:requestLegacyExternalStorage">
+        tools:replace="android:name">
 
         <!--
              AAOS SAFE MODE
 
              The automotive build deliberately removes every legacy AnExplorer component that
-             can be created before or alongside the launcher activity. In particular, Android
-             instantiates ContentProviders before Application.onCreate(), so leaving the old
-             document providers enabled would still execute the legacy RootsCache/provider path
-             before our safe launcher gets a chance to run.
+             can be created before or alongside the launcher activity. Android instantiates
+             ContentProviders before Application.onCreate(), so leaving the old provider/root
+             stack enabled would re-introduce the original Renault startup crash path.
 
-             For the SafeMode3 diagnostic build the automotive flavor targets API 29 and opts
-             out of scoped storage. This is intentionally a sideload/diagnostic configuration
-             for Renault AAOS 12 and is not the final Play Store target.
+             SafeMode4 is Play-compliant and targets API 35. On Renault AAOS 12/API 32 the
+             bootstrap activity first requests the normal READ_EXTERNAL_STORAGE runtime
+             permission, then launches the isolated safe-mode browser. Scoped Storage still
+             remains in force unless the OEM exposes and grants MANAGE_EXTERNAL_STORAGE.
 
              Mobile remains untouched; these removals exist only in src/automotive.
         -->
@@ -83,6 +82,16 @@
 
         <activity
             android:name=".AutomotiveSafeModeActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <meta-data
+                android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
+                android:value="true" />
+        </activity>
+
+        <activity
+            android:name=".AutomotivePermissionBootstrapActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.Material.NoActionBar">
