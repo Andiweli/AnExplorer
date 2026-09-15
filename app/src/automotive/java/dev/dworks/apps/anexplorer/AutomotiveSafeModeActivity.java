@@ -2,6 +2,7 @@ package dev.dworks.apps.anexplorer;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AppOpsManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -9,6 +10,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Process;
 import android.os.storage.StorageManager;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -31,7 +33,7 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * Minimal, independent AAOS launcher used to isolate Renault startup issues.
+ * Minimal, independent AAOS launcher used to isolate Renault startup/storage issues.
  *
  * This activity intentionally does not use DocumentsActivity, DocumentsUI, RootsCache,
  * DocumentsProvider or any of the old navigation state. It is a read-only local file browser
@@ -42,6 +44,7 @@ public class AutomotiveSafeModeActivity extends Activity {
 
     private static final int REQUEST_STORAGE = 1201;
     private static final String STATE_PATH = "safe_mode_path";
+    private static final String OP_MANAGE_EXTERNAL_STORAGE = "android:manage_external_storage";
 
     private final List<File> entries = new ArrayList<File>();
 
@@ -80,6 +83,7 @@ public class AutomotiveSafeModeActivity extends Activity {
         setContentView(createContentView());
         AutomotiveSafeApplication.log(this, "05 UI created");
 
+        logStorageAccessState("create");
         updatePermissionUi();
         loadDirectory(currentDirectory);
     }
@@ -88,6 +92,7 @@ public class AutomotiveSafeModeActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (pathView != null) {
+            logStorageAccessState("resume");
             updatePermissionUi();
             loadDirectory(currentDirectory);
         }
@@ -133,6 +138,44 @@ public class AutomotiveSafeModeActivity extends Activity {
             AutomotiveSafeApplication.log(this,
                     "03 StorageManager failed: " + error.getClass().getName()
                             + ": " + error.getMessage());
+        }
+    }
+
+    private void logStorageAccessState(String reason) {
+        boolean allFiles = hasBroadStorageAccess();
+        String appOp = getManageStorageAppOpMode();
+        String rootState = rootDirectory == null
+                ? "root=null"
+                : "root=" + rootDirectory.getAbsolutePath()
+                        + " exists=" + rootDirectory.exists()
+                        + " canRead=" + rootDirectory.canRead()
+                        + " canWrite=" + rootDirectory.canWrite();
+
+        AutomotiveSafeApplication.log(this,
+                "ACCESS " + reason
+                        + " api=" + Build.VERSION.SDK_INT
+                        + " allFiles=" + allFiles
+                        + " appOp=" + appOp
+                        + " " + rootState);
+    }
+
+    private String getManageStorageAppOpMode() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return "legacy";
+        }
+
+        try {
+            AppOpsManager appOps = (AppOpsManager) getSystemService(APP_OPS_SERVICE);
+            if (appOps == null) {
+                return "no-service";
+            }
+            int mode = appOps.unsafeCheckOpNoThrow(
+                    OP_MANAGE_EXTERNAL_STORAGE,
+                    Process.myUid(),
+                    getPackageName());
+            return String.valueOf(mode);
+        } catch (Throwable error) {
+            return "error:" + error.getClass().getSimpleName();
         }
     }
 
@@ -209,6 +252,7 @@ public class AutomotiveSafeModeActivity extends Activity {
         refreshButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                logStorageAccessState("manual-refresh");
                 loadDirectory(currentDirectory);
             }
         });
@@ -227,6 +271,7 @@ public class AutomotiveSafeModeActivity extends Activity {
         logButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                logStorageAccessState("log-export");
                 boolean exported = AutomotiveSafeApplication.exportStartupLogToDownloads(
                         AutomotiveSafeModeActivity.this);
                 Toast.makeText(
@@ -298,11 +343,13 @@ public class AutomotiveSafeModeActivity extends Activity {
     private void updatePermissionUi() {
         boolean granted = hasBroadStorageAccess();
         permissionButton.setVisibility(granted ? View.GONE : View.VISIBLE);
-        if (!granted) {
-            statusView.setText(
-                    "Safe Mode läuft. Für den kompletten internen Speicher bitte ZUGRIFF drücken. "
-                            + "Es wird kein Berechtigungsdialog automatisch geöffnet.");
-        }
+    }
+
+    private void setStatus(String text, boolean warning) {
+        statusView.setText(text);
+        statusView.setTextColor(warning
+                ? Color.rgb(255, 190, 90)
+                : Color.rgb(190, 190, 190));
     }
 
     private boolean hasBroadStorageAccess() {
@@ -317,19 +364,29 @@ public class AutomotiveSafeModeActivity extends Activity {
     }
 
     private void requestStorageAccessManually() {
-        AutomotiveSafeApplication.log(this, "PERMISSION user requested storage access");
+        AutomotiveSafeApplication.log(this,
+                "PERMISSION user requested storage access currentAllFiles="
+                        + hasBroadStorageAccess()
+                        + " appOp=" + getManageStorageAppOpMode());
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
                 Intent appIntent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
                 appIntent.setData(Uri.parse("package:" + getPackageName()));
                 startActivity(appIntent);
                 return;
-            } catch (Throwable ignored) {
+            } catch (Throwable error) {
+                AutomotiveSafeApplication.log(this,
+                        "PERMISSION per-app settings failed: "
+                                + error.getClass().getName() + ": " + error.getMessage());
             }
             try {
                 startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
                 return;
             } catch (Throwable error) {
+                AutomotiveSafeApplication.log(this,
+                        "PERMISSION global settings failed: "
+                                + error.getClass().getName() + ": " + error.getMessage());
                 Toast.makeText(this,
                         "Die AAOS-Einstellungen stellen den Dateizugriff nicht bereit.",
                         Toast.LENGTH_LONG).show();
@@ -348,6 +405,7 @@ public class AutomotiveSafeModeActivity extends Activity {
             int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_STORAGE) {
+            logStorageAccessState("permission-result");
             updatePermissionUi();
             loadDirectory(currentDirectory);
         }
@@ -366,11 +424,19 @@ public class AutomotiveSafeModeActivity extends Activity {
         currentDirectory = normalized;
         pathView.setText(normalized.getAbsolutePath());
         upButton.setEnabled(!sameFile(normalized, rootDirectory));
-        statusView.setText("Lese Verzeichnis …");
+        setStatus(hasBroadStorageAccess()
+                        ? "Lese Verzeichnis … · Vollzugriff aktiv"
+                        : "EINGESCHRÄNKTER ZUGRIFF · Inhalte können fehlen · ZUGRIFF drücken",
+                !hasBroadStorageAccess());
         final int generation = ++loadGeneration;
 
         AutomotiveSafeApplication.log(this,
-                "LOAD begin " + normalized.getAbsolutePath());
+                "LOAD begin path=" + normalized.getAbsolutePath()
+                        + " allFiles=" + hasBroadStorageAccess()
+                        + " exists=" + normalized.exists()
+                        + " dir=" + normalized.isDirectory()
+                        + " canRead=" + normalized.canRead()
+                        + " canWrite=" + normalized.canWrite());
 
         new Thread(new Runnable() {
             @Override
@@ -416,32 +482,95 @@ public class AutomotiveSafeModeActivity extends Activity {
 
         adapter.notifyDataSetChanged();
 
+        boolean allFiles = hasBroadStorageAccess();
+        boolean androidRestricted = isAndroidProtectedDirectory(directory);
+
         if (error != null) {
-            statusView.setText("Lesefehler: " + error.getClass().getSimpleName()
-                    + (error.getMessage() != null ? " · " + error.getMessage() : ""));
+            setStatus("Lesefehler: " + error.getClass().getSimpleName()
+                    + (error.getMessage() != null ? " · " + error.getMessage() : ""), true);
             AutomotiveSafeApplication.log(this,
                     "LOAD failed " + directory.getAbsolutePath() + " "
                             + error.getClass().getName() + ": " + error.getMessage());
         } else if (files == null) {
-            statusView.setText(hasBroadStorageAccess()
-                    ? "Dieses Verzeichnis kann auf dem Fahrzeug nicht gelesen werden."
-                    : "Kein vollständiger Dateizugriff. Drücke ZUGRIFF oben rechts.");
+            if (androidRestricted) {
+                setStatus(
+                        "ANDROID-SCHUTZ · Inhalte unter Android/data bzw. Android/obb anderer Apps "
+                                + "sind ab Android 11 systemseitig gesperrt.",
+                        true);
+            } else if (!allFiles) {
+                setStatus(
+                        "KEIN VOLLZUGRIFF · Android blendet Inhalte aus. Bitte ZUGRIFF drücken "
+                                + "und 'Alle Dateien verwalten' erlauben.",
+                        true);
+            } else {
+                setStatus("Dieses Verzeichnis kann auf dem Fahrzeug nicht gelesen werden.", true);
+            }
             AutomotiveSafeApplication.log(this,
-                    "LOAD returned null " + directory.getAbsolutePath());
+                    "LOAD returned null path=" + directory.getAbsolutePath()
+                            + " allFiles=" + allFiles
+                            + " androidRestricted=" + androidRestricted);
+        } else if (androidRestricted) {
+            setStatus(
+                    entries.size() + " sichtbare Einträge · ANDROID-SCHUTZ: Inhalte von "
+                            + "Android/data bzw. Android/obb anderer Apps können nicht gelesen werden.",
+                    true);
+            AutomotiveSafeApplication.log(this,
+                    "LOAD Android protected path=" + directory.getAbsolutePath()
+                            + " visibleEntries=" + entries.size()
+                            + " allFiles=" + allFiles);
+        } else if (!allFiles) {
+            setStatus(
+                    entries.size() + " sichtbare Einträge · KEIN VOLLZUGRIFF: Android kann Dateien "
+                            + "ausblenden. Bitte ZUGRIFF drücken.",
+                    true);
+            AutomotiveSafeApplication.log(this,
+                    "LOAD scoped path=" + directory.getAbsolutePath()
+                            + " visibleEntries=" + entries.size());
+        } else if (entries.isEmpty()) {
+            setStatus("0 Einträge · Vollzugriff aktiv · Verzeichnis leer oder OEM-seitig geschützt.",
+                    true);
+            AutomotiveSafeApplication.log(this,
+                    "LOAD empty despite allFiles path=" + directory.getAbsolutePath()
+                            + " canRead=" + directory.canRead());
         } else {
-            statusView.setText(entries.size() + " Einträge · Safe Mode nur lesend");
+            setStatus(entries.size() + " Einträge · Vollzugriff aktiv · Safe Mode nur lesend", false);
             AutomotiveSafeApplication.log(this,
                     "06 File list created path=" + directory.getAbsolutePath()
-                            + " entries=" + entries.size());
+                            + " entries=" + entries.size()
+                            + " allFiles=true");
             AutomotiveSafeApplication.log(this, "STARTUP COMPLETE");
         }
 
-        updatePermissionUiIfNeededAfterLoad();
+        updatePermissionUi();
     }
 
-    private void updatePermissionUiIfNeededAfterLoad() {
-        if (!hasBroadStorageAccess()) {
-            permissionButton.setVisibility(View.VISIBLE);
+    private boolean isAndroidProtectedDirectory(File directory) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+                || directory == null
+                || rootDirectory == null) {
+            return false;
+        }
+
+        try {
+            String rootPath = rootDirectory.getCanonicalPath();
+            String path = directory.getCanonicalPath();
+            String dataRoot = rootPath + File.separator + "Android" + File.separator + "data";
+            String obbRoot = rootPath + File.separator + "Android" + File.separator + "obb";
+
+            if (path.equals(dataRoot) || path.equals(obbRoot)) {
+                return true;
+            }
+
+            String ownData = dataRoot + File.separator + getPackageName();
+            String ownObb = obbRoot + File.separator + getPackageName();
+
+            boolean inData = path.startsWith(dataRoot + File.separator)
+                    && !(path.equals(ownData) || path.startsWith(ownData + File.separator));
+            boolean inObb = path.startsWith(obbRoot + File.separator)
+                    && !(path.equals(ownObb) || path.startsWith(ownObb + File.separator));
+            return inData || inObb;
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
