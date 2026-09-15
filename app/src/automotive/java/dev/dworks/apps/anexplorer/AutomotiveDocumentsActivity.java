@@ -35,6 +35,7 @@ import dev.dworks.apps.anexplorer.provider.ExternalStorageProvider;
 public class AutomotiveDocumentsActivity extends DocumentsActivity {
 
     private boolean storagePromptShown;
+    private boolean crashRecorderInstalled;
     private Thread.UncaughtExceptionHandler previousExceptionHandler;
 
     @Override
@@ -48,11 +49,11 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
     }
 
     private void installCrashRecorder() {
-        final Thread.UncaughtExceptionHandler current = Thread.getDefaultUncaughtExceptionHandler();
-        if (current == this::handleUncaughtException) {
+        if (crashRecorderInstalled) {
             return;
         }
-        previousExceptionHandler = current;
+        crashRecorderInstalled = true;
+        previousExceptionHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
             public void uncaughtException(Thread thread, Throwable throwable) {
@@ -62,13 +63,6 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
                 }
             }
         });
-    }
-
-    private void handleUncaughtException(Thread thread, Throwable throwable) {
-        writeCrashReport(thread, throwable);
-        if (previousExceptionHandler != null) {
-            previousExceptionHandler.uncaughtException(thread, throwable);
-        }
     }
 
     private void writeCrashReport(Thread thread, Throwable throwable) {
