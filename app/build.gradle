@@ -24,8 +24,8 @@ android {
         applicationId 'com.ast.anexplorer'
         minSdk 23
         targetSdk 36
-        versionCode 60825
-        versionName '6.0.8-safemode2'
+        versionCode 60826
+        versionName '6.0.8-safemode3-legacy'
         multiDexEnabled true
         vectorDrawables.useSupportLibrary = true
 
@@ -59,7 +59,11 @@ android {
         }
         automotive {
             dimension 'platform'
-            targetSdk 36
+
+            // Diagnostic/sideload build for Renault AAOS 12 (API 32). Apps targeting API 29
+            // may still opt out of scoped storage with requestLegacyExternalStorage=true.
+            // This is intentionally NOT the final Play Store configuration.
+            targetSdk 29
             versionNameSuffix '-aaos'
         }
     }
