@@ -2,8 +2,10 @@ package dev.dworks.apps.anexplorer;
 
 import android.app.Application;
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -32,6 +34,7 @@ import java.util.Locale;
 public class AutomotiveSafeApplication extends Application {
 
     private static final String STARTUP_LOG = "anexplorer-startup.log";
+    private static final String PUBLIC_STARTUP_LOG = "AnExplorer-AAOS-startup.txt";
     private static final Object LOG_LOCK = new Object();
 
     private Thread.UncaughtExceptionHandler previousExceptionHandler;
@@ -76,7 +79,8 @@ public class AutomotiveSafeApplication extends Application {
 
         String line = timestamp() + "  " + message + "\n";
         synchronized (LOG_LOCK) {
-            appendBestEffort(new File(context.getFilesDir(), STARTUP_LOG), line);
+            File internalLog = new File(context.getFilesDir(), STARTUP_LOG);
+            appendBestEffort(internalLog, line);
 
             try {
                 File externalDir = context.getExternalFilesDir(null);
@@ -85,6 +89,12 @@ public class AutomotiveSafeApplication extends Application {
                 }
             } catch (Throwable ignored) {
             }
+
+            // The Renault AAOS installation cannot browse the app-private Android/data directory.
+            // Keep a continuously updated copy in the public Download folder instead. On Android
+            // 10+ this uses MediaStore.Downloads, so creating our own diagnostic file does not
+            // require MANAGE_EXTERNAL_STORAGE or administrator rights.
+            mirrorInternalLogToPublicDownloads(context, internalLog);
         }
     }
 
@@ -98,11 +108,11 @@ public class AutomotiveSafeApplication extends Application {
     }
 
     public static boolean exportStartupLogToDownloads(Context context) {
-        File source = getExternalStartupLog(context);
-        if (source == null || !source.isFile()) {
-            source = new File(context.getFilesDir(), STARTUP_LOG);
-        }
+        File source = new File(context.getFilesDir(), STARTUP_LOG);
         if (!source.isFile()) {
+            source = getExternalStartupLog(context);
+        }
+        if (source == null || !source.isFile()) {
             return false;
         }
 
@@ -111,8 +121,92 @@ public class AutomotiveSafeApplication extends Application {
             return false;
         }
 
+        // Always refresh the predictable public filename first, then also create a timestamped
+        // snapshot so a user can preserve a specific test run.
+        boolean publicCopy = writeOrReplacePublicStartupLog(context, text);
         String fileName = "AnExplorer-AAOS-startup-" + System.currentTimeMillis() + ".txt";
-        return writeTextToDownloads(context, fileName, text);
+        boolean snapshot = writeTextToDownloads(context, fileName, text);
+        return publicCopy || snapshot;
+    }
+
+    private static void mirrorInternalLogToPublicDownloads(Context context, File internalLog) {
+        try {
+            String text = readBestEffort(internalLog);
+            if (text != null) {
+                writeOrReplacePublicStartupLog(context, text);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean writeOrReplacePublicStartupLog(Context context, String text) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            try {
+                File downloads = Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS);
+                if (!downloads.exists() && !downloads.mkdirs()) {
+                    return false;
+                }
+                writeBestEffort(new File(downloads, PUBLIC_STARTUP_LOG), text);
+                return true;
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+
+        Cursor cursor = null;
+        OutputStream output = null;
+        try {
+            ContentResolver resolver = context.getContentResolver();
+            Uri collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+            String relativePath = Environment.DIRECTORY_DOWNLOADS + "/";
+            Uri itemUri = null;
+
+            String[] projection = new String[]{MediaStore.Downloads._ID};
+            String selection = MediaStore.Downloads.DISPLAY_NAME + "=? AND "
+                    + MediaStore.Downloads.RELATIVE_PATH + "=?";
+            String[] args = new String[]{PUBLIC_STARTUP_LOG, relativePath};
+            cursor = resolver.query(collection, projection, selection, args, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                long id = cursor.getLong(0);
+                itemUri = ContentUris.withAppendedId(collection, id);
+            }
+
+            if (itemUri == null) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Downloads.DISPLAY_NAME, PUBLIC_STARTUP_LOG);
+                values.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+                values.put(MediaStore.Downloads.RELATIVE_PATH, relativePath);
+                itemUri = resolver.insert(collection, values);
+            }
+
+            if (itemUri == null) {
+                return false;
+            }
+
+            output = resolver.openOutputStream(itemUri, "wt");
+            if (output == null) {
+                return false;
+            }
+            output.write(text.getBytes("UTF-8"));
+            output.flush();
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        } finally {
+            if (cursor != null) {
+                try {
+                    cursor.close();
+                } catch (Throwable ignored) {
+                }
+            }
+            if (output != null) {
+                try {
+                    output.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
     }
 
     private static void writeCrashReport(Context context, Thread thread, Throwable throwable) {
@@ -170,7 +264,7 @@ public class AutomotiveSafeApplication extends Application {
             ContentValues values = new ContentValues();
             values.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
             values.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
-            values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+            values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/");
             Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
                 return false;
