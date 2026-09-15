@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  launch-aaos-api32:
+  launch-aaos-api33:
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -34,10 +34,10 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Build, install and launch on Android Automotive OS 12L/API 32
+      - name: Build, install and launch on Android Automotive OS 13/API 33
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 32
+          api-level: 33
           target: android-automotive
           arch: x86_64
           profile: pixel_2
