@@ -80,7 +80,8 @@ public class HomeAdapter extends RecyclerView.Adapter<HomeAdapter.ViewHolder> {
 
     @Override
     public int getItemViewType(int position) {
-        return getItem(position).type;
+        CommonInfo item = getItem(position);
+        return item != null ? item.type : TYPE_SHORTCUT;
     }
 
     @Override
@@ -195,6 +196,11 @@ public class HomeAdapter extends RecyclerView.Adapter<HomeAdapter.ViewHolder> {
         public void setData(int position){
             mPosition = position;
             commonInfo = getItem(position);
+            if (commonInfo == null || commonInfo.rootInfo == null) {
+                itemView.setVisibility(View.GONE);
+                return;
+            }
+            itemView.setVisibility(View.VISIBLE);
             icon.setImageDrawable(commonInfo.rootInfo.loadDrawerIcon(mContext));
             title.setText(commonInfo.rootInfo.title);
             int drawableId = -1;
@@ -247,9 +253,11 @@ public class HomeAdapter extends RecyclerView.Adapter<HomeAdapter.ViewHolder> {
         public void setData(int position){
             mPosition = position;
             commonInfo = getItem(position);
-            if(null == commonInfo){
+            if(commonInfo == null || commonInfo.rootInfo == null){
+                itemView.setVisibility(View.GONE);
                 return;
             }
+            itemView.setVisibility(View.VISIBLE);
             iconBackground.setColor(ContextCompat.getColor(mContext, commonInfo.rootInfo.derivedColor));
             icon.setImageDrawable(commonInfo.rootInfo.loadShortcutIcon(mContext));
             title.setText(commonInfo.rootInfo.title);
