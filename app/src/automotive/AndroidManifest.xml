@@ -6,55 +6,81 @@
         android:name="android.hardware.type.automotive"
         android:required="true" />
 
-    <application>
+    <application
+        android:name=".AutomotiveSafeApplication"
+        tools:replace="android:name">
+
         <!--
-             The legacy DocumentsActivity has a method named invalidateMenu(). Modern AndroidX
-             also uses invalidateMenu() as an internal lifecycle hook and can invoke it before
-             DocumentsActivity has initialized mState. Remove the legacy activity declaration
-             from the automotive merge and route all of its entry points through the AAOS-safe
-             subclass instead.
+             AAOS SAFE MODE
+
+             The automotive build deliberately removes every legacy AnExplorer component that
+             can be created before or alongside the launcher activity. In particular, Android
+             instantiates ContentProviders before Application.onCreate(), so leaving the old
+             document providers enabled would still execute the legacy RootsCache/provider path
+             before our safe launcher gets a chance to run.
+
+             Mobile remains untouched; these removals exist only in src/automotive.
         -->
-        <activity
-            android:name=".DocumentsActivity"
+
+        <activity android:name=".DocumentsActivity" tools:node="remove" />
+        <activity android:name=".StandaloneActivity" tools:node="remove" />
+        <activity android:name=".setting.SettingsActivity" tools:node="remove" />
+        <activity android:name=".AboutActivity" tools:node="remove" />
+        <activity android:name=".NoteActivity" tools:node="remove" />
+        <activity android:name=".common.WebviewActivity" tools:node="remove" />
+
+        <receiver android:name=".receiver.PackageReceiver" tools:node="remove" />
+        <receiver android:name=".receiver.MountReceiver" tools:node="remove" />
+        <receiver android:name=".receiver.ConnectionsReceiver" tools:node="remove" />
+
+        <service android:name=".service.ConnectionsService" tools:node="remove" />
+        <service android:name=".service.ServerService" tools:node="remove" />
+
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.ContentProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.RecentsProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.ExternalStorageProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.MediaDocumentsProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.NonMediaDocumentsProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.AppsProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.RootedStorageProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.HeatMapProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.DownloadStorageProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.ExplorerProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.UsbStorageProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.NetworkStorageProvider"
+            tools:node="remove" />
+        <provider
+            android:name="dev.dworks.apps.anexplorer.provider.CloudStorageProvider"
             tools:node="remove" />
 
         <activity
-            android:name=".AutomotiveDocumentsActivity"
+            android:name=".AutomotiveSafeModeActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:theme="@style/DocumentsTheme.Splash">
-
-            <intent-filter>
-                <action android:name="android.intent.action.OPEN_DOCUMENT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.OPENABLE" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.CREATE_DOCUMENT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.OPENABLE" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.GET_CONTENT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.OPENABLE" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.provider.action.MANAGE_ROOT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="vnd.android.document/root" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
+            android:theme="@android:style/Theme.Material.NoActionBar">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -67,20 +93,6 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
 
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
-            </intent-filter>
-
-            <intent-filter>
-                <data android:scheme="${applicationId}" />
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-            </intent-filter>
-
-            <meta-data
-                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
-                android:resource="@xml/device_filter" />
             <meta-data
                 android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
                 android:value="true" />
