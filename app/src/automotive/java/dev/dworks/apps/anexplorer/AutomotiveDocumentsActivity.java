@@ -1,8 +1,19 @@
 package dev.dworks.apps.anexplorer;
 
+import android.content.ContentValues;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
+import android.provider.MediaStore;
 import android.view.View;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 import dev.dworks.apps.anexplorer.fragment.HomeFragment;
 import dev.dworks.apps.anexplorer.misc.PermissionUtil;
@@ -24,6 +35,117 @@ import dev.dworks.apps.anexplorer.provider.ExternalStorageProvider;
 public class AutomotiveDocumentsActivity extends DocumentsActivity {
 
     private boolean storagePromptShown;
+    private Thread.UncaughtExceptionHandler previousExceptionHandler;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        // Renault/AAOS does not expose adb/logcat to us. Install the recorder before the
+        // legacy activity enters super.onCreate() so even very early UI/provider failures
+        // leave a useful stack trace. Writing the report is best-effort and never replaces
+        // Android's normal crash handling.
+        installCrashRecorder();
+        super.onCreate(savedInstanceState);
+    }
+
+    private void installCrashRecorder() {
+        final Thread.UncaughtExceptionHandler current = Thread.getDefaultUncaughtExceptionHandler();
+        if (current == this::handleUncaughtException) {
+            return;
+        }
+        previousExceptionHandler = current;
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread thread, Throwable throwable) {
+                writeCrashReport(thread, throwable);
+                if (previousExceptionHandler != null) {
+                    previousExceptionHandler.uncaughtException(thread, throwable);
+                }
+            }
+        });
+    }
+
+    private void handleUncaughtException(Thread thread, Throwable throwable) {
+        writeCrashReport(thread, throwable);
+        if (previousExceptionHandler != null) {
+            previousExceptionHandler.uncaughtException(thread, throwable);
+        }
+    }
+
+    private void writeCrashReport(Thread thread, Throwable throwable) {
+        final String report = buildCrashReport(thread, throwable);
+        final String fileName = "AnExplorer-AAOS-crash-" + System.currentTimeMillis() + ".txt";
+
+        // Always try app-private external storage first.
+        try {
+            File dir = getExternalFilesDir(null);
+            if (dir != null) {
+                writeFile(new File(dir, fileName), report);
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // MediaStore lets a modern app create its own file in Downloads without broad storage
+        // permission. This gives us a report that can be opened with the vehicle's file manager.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            OutputStream output = null;
+            try {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+                values.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+                values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                Uri uri = getContentResolver().insert(
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    output = getContentResolver().openOutputStream(uri, "w");
+                    if (output != null) {
+                        output.write(report.getBytes("UTF-8"));
+                        output.flush();
+                    }
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                if (output != null) {
+                    try {
+                        output.close();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
+    }
+
+    private String buildCrashReport(Thread thread, Throwable throwable) {
+        StringWriter stack = new StringWriter();
+        PrintWriter printer = new PrintWriter(stack);
+        throwable.printStackTrace(printer);
+        printer.flush();
+
+        StringBuilder result = new StringBuilder();
+        result.append("AnExplorer AAOS crash report\n");
+        result.append("Package: ").append(getPackageName()).append('\n');
+        result.append("Version: ").append(BuildConfig.VERSION_NAME)
+                .append(" (").append(BuildConfig.VERSION_CODE).append(")\n");
+        result.append("Android: ").append(Build.VERSION.RELEASE)
+                .append(" / API ").append(Build.VERSION.SDK_INT).append('\n');
+        result.append("Device: ").append(Build.MANUFACTURER).append(' ')
+                .append(Build.MODEL).append('\n');
+        result.append("Thread: ").append(thread != null ? thread.getName() : "unknown").append("\n\n");
+        result.append(stack.toString());
+        return result.toString();
+    }
+
+    private void writeFile(File file, String report) throws Exception {
+        FileOutputStream output = null;
+        try {
+            output = new FileOutputStream(file, false);
+            output.write(report.getBytes("UTF-8"));
+            output.flush();
+        } finally {
+            if (output != null) {
+                output.close();
+            }
+        }
+    }
 
     @Override
     public void invalidateMenu() {
@@ -112,8 +234,15 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
             return;
         }
 
-        RootsCache.updateRoots(this, ExternalStorageProvider.AUTHORITY);
+        try {
+            RootsCache.updateRoots(this, ExternalStorageProvider.AUTHORITY);
+        } catch (RuntimeException ignored) {
+            // Some OEM provider implementations are not available during the first frame.
+        }
         final RootsCache roots = DocumentsApplication.getRootsCache(this);
+        if (roots == null) {
+            return;
+        }
         final Handler handler = new Handler();
         handler.postDelayed(new Runnable() {
             @Override
