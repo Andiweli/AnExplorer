@@ -8,7 +8,8 @@
 
     <application
         android:name=".AutomotiveSafeApplication"
-        tools:replace="android:name">
+        android:requestLegacyExternalStorage="true"
+        tools:replace="android:name,android:requestLegacyExternalStorage">
 
         <!--
              AAOS SAFE MODE
@@ -18,6 +19,10 @@
              instantiates ContentProviders before Application.onCreate(), so leaving the old
              document providers enabled would still execute the legacy RootsCache/provider path
              before our safe launcher gets a chance to run.
+
+             For the SafeMode3 diagnostic build the automotive flavor targets API 29 and opts
+             out of scoped storage. This is intentionally a sideload/diagnostic configuration
+             for Renault AAOS 12 and is not the final Play Store target.
 
              Mobile remains untouched; these removals exist only in src/automotive.
         -->
