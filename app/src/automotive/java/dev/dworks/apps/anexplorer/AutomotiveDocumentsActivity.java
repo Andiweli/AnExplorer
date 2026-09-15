@@ -39,7 +39,7 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
     private Thread.UncaughtExceptionHandler previousExceptionHandler;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    public void onCreate(Bundle savedInstanceState) {
         // Renault/AAOS does not expose adb/logcat to us. Install the recorder before the
         // legacy activity enters super.onCreate() so even very early UI/provider failures
         // leave a useful stack trace. Writing the report is best-effort and never replaces
@@ -69,7 +69,6 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
         final String report = buildCrashReport(thread, throwable);
         final String fileName = "AnExplorer-AAOS-crash-" + System.currentTimeMillis() + ".txt";
 
-        // Always try app-private external storage first.
         try {
             File dir = getExternalFilesDir(null);
             if (dir != null) {
@@ -78,8 +77,6 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
         } catch (Throwable ignored) {
         }
 
-        // MediaStore lets a modern app create its own file in Downloads without broad storage
-        // permission. This gives us a report that can be opened with the vehicle's file manager.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             OutputStream output = null;
             try {
@@ -179,12 +176,6 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
         return super.isCreateSupported();
     }
 
-    /**
-     * Do not jump into an OEM Settings activity automatically during the first frame.
-     * Several AAOS implementations either do not expose MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
-     * or immediately close that screen. The user gets a stable app first and may explicitly
-     * request the permission from the snackbar.
-     */
     @Override
     protected void requestStoragePermissions() {
         if (PermissionUtil.hasStoragePermission(this)) {
@@ -217,11 +208,6 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
         }, 1200L);
     }
 
-    /**
-     * Refresh storage roots defensively after the permission screen returns. The legacy
-     * implementation dereferenced getCurrentRoot() without checking for a provider that has
-     * not finished publishing its roots yet.
-     */
     @Override
     public void again() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -231,7 +217,6 @@ public class AutomotiveDocumentsActivity extends DocumentsActivity {
         try {
             RootsCache.updateRoots(this, ExternalStorageProvider.AUTHORITY);
         } catch (RuntimeException ignored) {
-            // Some OEM provider implementations are not available during the first frame.
         }
         final RootsCache roots = DocumentsApplication.getRootsCache(this);
         if (roots == null) {
