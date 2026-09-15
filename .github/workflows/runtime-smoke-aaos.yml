@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  launch-api32:
+  launch-aaos-api32:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -34,10 +34,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Build, install and launch automotiveDebug on Android 12L/API 32
+      - name: Build, install and launch on Android Automotive OS 12L/API 32
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 32
+          target: android-automotive
           arch: x86_64
           profile: pixel_2
           disable-animations: true
