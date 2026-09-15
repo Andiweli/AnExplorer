@@ -24,6 +24,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.Point;
 import android.net.Uri;
 import android.os.RemoteException;
@@ -47,6 +48,8 @@ import dev.dworks.apps.anexplorer.setting.SettingsActivity;
 
 public class DocumentsApplication extends AppFlavour {
     private static final long PROVIDER_ANR_TIMEOUT = 20 * DateUtils.SECOND_IN_MILLIS;
+    private static final String AAOS_MIGRATION_PREFS = "aaos_source_migration";
+    private static final String AAOS_TRANSIENT_RESET_V1 = "transient_reset_v1";
     private static DocumentsApplication sInstance;
 
     static {
@@ -101,6 +104,15 @@ public class DocumentsApplication extends AppFlavour {
         }
 
         sInstance = this;
+
+        // The Play-distributed AAOS source build upgrades installations that previously ran
+        // the newer closed/binary 6.0.8 code while this public source tree is substantially
+        // older. Its recents.db contains parcelled DocumentStack/resume data and potentially a
+        // newer SQLite user_version. Restoring that transient data with the old source can fail
+        // immediately after the first frame. Reset only transient navigation/history state once;
+        // settings, bookmarks and network/cloud connections remain untouched.
+        migrateAutomotiveTransientState();
+
         final ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         final int memoryClassBytes = am.getMemoryClass() * 1024 * 1024;
 
@@ -144,6 +156,36 @@ public class DocumentsApplication extends AppFlavour {
                 != AppCompatDelegate.MODE_NIGHT_YES) {
             SettingsActivity.setThemeStyle(AppCompatDelegate.MODE_NIGHT_YES);
         }
+    }
+
+    private void migrateAutomotiveTransientState() {
+        if (!BuildConfig.FLAVOR.toLowerCase().contains("automotive")) {
+            return;
+        }
+
+        final SharedPreferences migration =
+                getSharedPreferences(AAOS_MIGRATION_PREFS, Context.MODE_PRIVATE);
+        if (migration.getBoolean(AAOS_TRANSIENT_RESET_V1, false)) {
+            return;
+        }
+
+        try {
+            // Database is recreated lazily by RecentsProvider with this source tree's schema.
+            deleteDatabase("recents.db");
+        } catch (RuntimeException ignored) {
+            // Startup must never fail because cleanup of disposable history failed.
+        }
+
+        try {
+            // Do not let an accumulated phone-oriented "rate this app" counter inject legacy
+            // overlay UI into the first AAOS runs after migration.
+            getSharedPreferences("app_rate_prefs", Context.MODE_PRIVATE)
+                    .edit().clear().apply();
+        } catch (RuntimeException ignored) {
+        }
+
+        // commit() is intentional: mark the migration before async provider/root work starts.
+        migration.edit().putBoolean(AAOS_TRANSIENT_RESET_V1, true).commit();
     }
 
     public static synchronized DocumentsApplication getInstance() {
