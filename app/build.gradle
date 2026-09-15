@@ -24,8 +24,8 @@ android {
         applicationId 'com.ast.anexplorer'
         minSdk 23
         targetSdk 36
-        versionCode 60827
-        versionName '6.0.8-safemode4-play'
+        versionCode 60828
+        versionName '6.0.8-safemode5-allfiles'
         multiDexEnabled true
         vectorDrawables.useSupportLibrary = true
 
