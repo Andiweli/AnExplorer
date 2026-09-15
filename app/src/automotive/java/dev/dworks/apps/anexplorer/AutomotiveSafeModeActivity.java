@@ -86,6 +86,7 @@ public class AutomotiveSafeModeActivity extends Activity {
         logStorageAccessState("create");
         updatePermissionUi();
         loadDirectory(currentDirectory);
+        maybeRequestLegacyStoragePermission();
     }
 
     @Override
@@ -142,7 +143,7 @@ public class AutomotiveSafeModeActivity extends Activity {
     }
 
     private void logStorageAccessState(String reason) {
-        boolean allFiles = hasBroadStorageAccess();
+        boolean broadAccess = hasBroadStorageAccess();
         String appOp = getManageStorageAppOpMode();
         String rootState = rootDirectory == null
                 ? "root=null"
@@ -154,14 +155,53 @@ public class AutomotiveSafeModeActivity extends Activity {
         AutomotiveSafeApplication.log(this,
                 "ACCESS " + reason
                         + " api=" + Build.VERSION.SDK_INT
-                        + " allFiles=" + allFiles
+                        + " target=" + getTargetSdkVersion()
+                        + " legacyTarget=" + isLegacyStorageBuild()
+                        + " legacyRuntime=" + isRuntimeLegacyStorage()
+                        + " readPermission=" + hasLegacyReadPermission()
+                        + " broadAccess=" + broadAccess
                         + " appOp=" + appOp
                         + " " + rootState);
     }
 
+    private int getTargetSdkVersion() {
+        try {
+            return getApplicationInfo().targetSdkVersion;
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    private boolean isLegacyStorageBuild() {
+        return getTargetSdkVersion() > 0
+                && getTargetSdkVersion() <= Build.VERSION_CODES.Q;
+    }
+
+    private boolean isRuntimeLegacyStorage() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return true;
+        }
+        try {
+            return Environment.isExternalStorageLegacy();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private boolean hasLegacyReadPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true;
+        }
+        return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
     private String getManageStorageAppOpMode() {
+        if (isLegacyStorageBuild()) {
+            return "legacy-target";
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return "legacy";
+            return "legacy-api";
         }
 
         try {
@@ -204,7 +244,9 @@ public class AutomotiveSafeModeActivity extends Activity {
 
         AutomotiveSafeApplication.log(this,
                 "04 Root selected: " + root.getAbsolutePath()
-                        + " broadAccess=" + hasBroadStorageAccess());
+                        + " broadAccess=" + hasBroadStorageAccess()
+                        + " target=" + getTargetSdkVersion()
+                        + " legacyRuntime=" + isRuntimeLegacyStorage());
         return root;
     }
 
@@ -227,7 +269,7 @@ public class AutomotiveSafeModeActivity extends Activity {
         toolbar.setBackgroundColor(panel);
 
         TextView title = new TextView(this);
-        title.setText("AnExplorer · AAOS Safe Mode");
+        title.setText("AnExplorer · AAOS Safe Mode 3");
         title.setTextColor(primaryText);
         title.setTextSize(20f);
         title.setGravity(Gravity.CENTER_VERTICAL);
@@ -276,8 +318,8 @@ public class AutomotiveSafeModeActivity extends Activity {
                         AutomotiveSafeModeActivity.this);
                 Toast.makeText(
                         AutomotiveSafeModeActivity.this,
-                        exported ? "Startdiagnose nach Downloads exportiert."
-                                : "Startdiagnose konnte nicht exportiert werden.",
+                        exported ? "Log liegt in Download/AnExplorer-AAOS-startup.txt."
+                                : "Startdiagnose konnte nicht nach Download geschrieben werden.",
                         Toast.LENGTH_LONG).show();
             }
         });
@@ -340,6 +382,29 @@ public class AutomotiveSafeModeActivity extends Activity {
         return button;
     }
 
+    private void maybeRequestLegacyStoragePermission() {
+        if (!isLegacyStorageBuild()
+                || Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                || hasLegacyReadPermission()) {
+            return;
+        }
+
+        // Request only after the basic UI exists. This avoids returning to the old startup crash
+        // pattern while still allowing a normal user-level Files & Media permission on AAOS.
+        listView.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!isFinishing() && !hasLegacyReadPermission()) {
+                    AutomotiveSafeApplication.log(AutomotiveSafeModeActivity.this,
+                            "PERMISSION automatic READ_EXTERNAL_STORAGE request");
+                    requestPermissions(
+                            new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
+                            REQUEST_STORAGE);
+                }
+            }
+        }, 500L);
+    }
+
     private void updatePermissionUi() {
         boolean granted = hasBroadStorageAccess();
         permissionButton.setVisibility(granted ? View.GONE : View.VISIBLE);
@@ -353,21 +418,46 @@ public class AutomotiveSafeModeActivity extends Activity {
     }
 
     private boolean hasBroadStorageAccess() {
+        if (isLegacyStorageBuild()) {
+            return hasLegacyReadPermission() && isRuntimeLegacyStorage();
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             return Environment.isExternalStorageManager();
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-                    == PackageManager.PERMISSION_GRANTED;
+            return hasLegacyReadPermission();
         }
         return true;
     }
 
     private void requestStorageAccessManually() {
         AutomotiveSafeApplication.log(this,
-                "PERMISSION user requested storage access currentAllFiles="
+                "PERMISSION user requested storage access currentBroad="
                         + hasBroadStorageAccess()
+                        + " target=" + getTargetSdkVersion()
+                        + " legacyRuntime=" + isRuntimeLegacyStorage()
                         + " appOp=" + getManageStorageAppOpMode());
+
+        if (isLegacyStorageBuild()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                    && !hasLegacyReadPermission()) {
+                requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
+                        REQUEST_STORAGE);
+                return;
+            }
+
+            if (!isRuntimeLegacyStorage()) {
+                Toast.makeText(this,
+                        "Dateiberechtigung ist erteilt, aber AAOS erzwingt weiterhin Scoped Storage. "
+                                + "Bitte LOG drücken und die Datei aus Download senden.",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this,
+                        "Legacy-Dateizugriff ist bereits aktiv.",
+                        Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
@@ -405,6 +495,10 @@ public class AutomotiveSafeModeActivity extends Activity {
             int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_STORAGE) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            AutomotiveSafeApplication.log(this,
+                    "PERMISSION result READ_EXTERNAL_STORAGE granted=" + granted);
             logStorageAccessState("permission-result");
             updatePermissionUi();
             loadDirectory(currentDirectory);
@@ -424,15 +518,28 @@ public class AutomotiveSafeModeActivity extends Activity {
         currentDirectory = normalized;
         pathView.setText(normalized.getAbsolutePath());
         upButton.setEnabled(!sameFile(normalized, rootDirectory));
-        setStatus(hasBroadStorageAccess()
-                        ? "Lese Verzeichnis … · Vollzugriff aktiv"
-                        : "EINGESCHRÄNKTER ZUGRIFF · Inhalte können fehlen · ZUGRIFF drücken",
-                !hasBroadStorageAccess());
+
+        boolean broadAccess = hasBroadStorageAccess();
+        if (isLegacyStorageBuild() && !hasLegacyReadPermission()) {
+            setStatus("DATEIBERECHTIGUNG FEHLT · Bitte den eingeblendeten Dateien-/Medienzugriff erlauben.",
+                    true);
+        } else if (isLegacyStorageBuild() && !isRuntimeLegacyStorage()) {
+            setStatus("AAOS erzwingt Scoped Storage trotz Target 29 · Inhalte können fehlen.", true);
+        } else {
+            setStatus(broadAccess
+                            ? "Lese Verzeichnis … · Dateizugriff aktiv"
+                            : "EINGESCHRÄNKTER ZUGRIFF · Inhalte können fehlen · ZUGRIFF drücken",
+                    !broadAccess);
+        }
+
         final int generation = ++loadGeneration;
 
         AutomotiveSafeApplication.log(this,
                 "LOAD begin path=" + normalized.getAbsolutePath()
-                        + " allFiles=" + hasBroadStorageAccess()
+                        + " target=" + getTargetSdkVersion()
+                        + " legacyRuntime=" + isRuntimeLegacyStorage()
+                        + " readPermission=" + hasLegacyReadPermission()
+                        + " broadAccess=" + broadAccess
                         + " exists=" + normalized.exists()
                         + " dir=" + normalized.isDirectory()
                         + " canRead=" + normalized.canRead()
@@ -482,7 +589,7 @@ public class AutomotiveSafeModeActivity extends Activity {
 
         adapter.notifyDataSetChanged();
 
-        boolean allFiles = hasBroadStorageAccess();
+        boolean broadAccess = hasBroadStorageAccess();
         boolean androidRestricted = isAndroidProtectedDirectory(directory);
 
         if (error != null) {
@@ -495,30 +602,48 @@ public class AutomotiveSafeModeActivity extends Activity {
             if (androidRestricted) {
                 setStatus(
                         "ANDROID-SCHUTZ · Inhalte unter Android/data bzw. Android/obb anderer Apps "
-                                + "sind ab Android 11 systemseitig gesperrt.",
+                                + "sind systemseitig gesperrt.",
                         true);
-            } else if (!allFiles) {
+            } else if (isLegacyStorageBuild() && !hasLegacyReadPermission()) {
+                setStatus("DATEIBERECHTIGUNG FEHLT · ZUGRIFF drücken und Dateien/Medien erlauben.",
+                        true);
+            } else if (isLegacyStorageBuild() && !isRuntimeLegacyStorage()) {
+                setStatus("AAOS erzwingt Scoped Storage trotz Target 29. Bitte LOG senden.", true);
+            } else if (!broadAccess) {
                 setStatus(
-                        "KEIN VOLLZUGRIFF · Android blendet Inhalte aus. Bitte ZUGRIFF drücken "
-                                + "und 'Alle Dateien verwalten' erlauben.",
+                        "KEIN VOLLZUGRIFF · Android blendet Inhalte aus. Bitte ZUGRIFF drücken.",
                         true);
             } else {
                 setStatus("Dieses Verzeichnis kann auf dem Fahrzeug nicht gelesen werden.", true);
             }
             AutomotiveSafeApplication.log(this,
                     "LOAD returned null path=" + directory.getAbsolutePath()
-                            + " allFiles=" + allFiles
+                            + " broadAccess=" + broadAccess
+                            + " legacyRuntime=" + isRuntimeLegacyStorage()
+                            + " readPermission=" + hasLegacyReadPermission()
                             + " androidRestricted=" + androidRestricted);
         } else if (androidRestricted) {
             setStatus(
                     entries.size() + " sichtbare Einträge · ANDROID-SCHUTZ: Inhalte von "
-                            + "Android/data bzw. Android/obb anderer Apps können nicht gelesen werden.",
+                            + "Android/data bzw. Android/obb anderer Apps können gesperrt sein.",
                     true);
             AutomotiveSafeApplication.log(this,
                     "LOAD Android protected path=" + directory.getAbsolutePath()
                             + " visibleEntries=" + entries.size()
-                            + " allFiles=" + allFiles);
-        } else if (!allFiles) {
+                            + " broadAccess=" + broadAccess);
+        } else if (isLegacyStorageBuild() && !hasLegacyReadPermission()) {
+            setStatus(entries.size()
+                    + " sichtbare Einträge · DATEIBERECHTIGUNG FEHLT · ZUGRIFF drücken.", true);
+            AutomotiveSafeApplication.log(this,
+                    "LOAD no READ permission path=" + directory.getAbsolutePath()
+                            + " visibleEntries=" + entries.size());
+        } else if (isLegacyStorageBuild() && !isRuntimeLegacyStorage()) {
+            setStatus(entries.size()
+                    + " sichtbare Einträge · Scoped Storage wurde vom AAOS nicht deaktiviert.", true);
+            AutomotiveSafeApplication.log(this,
+                    "LOAD legacy target but scoped runtime path=" + directory.getAbsolutePath()
+                            + " visibleEntries=" + entries.size());
+        } else if (!broadAccess) {
             setStatus(
                     entries.size() + " sichtbare Einträge · KEIN VOLLZUGRIFF: Android kann Dateien "
                             + "ausblenden. Bitte ZUGRIFF drücken.",
@@ -527,17 +652,17 @@ public class AutomotiveSafeModeActivity extends Activity {
                     "LOAD scoped path=" + directory.getAbsolutePath()
                             + " visibleEntries=" + entries.size());
         } else if (entries.isEmpty()) {
-            setStatus("0 Einträge · Vollzugriff aktiv · Verzeichnis leer oder OEM-seitig geschützt.",
+            setStatus("0 Einträge · Dateizugriff aktiv · Verzeichnis leer oder OEM-seitig geschützt.",
                     true);
             AutomotiveSafeApplication.log(this,
-                    "LOAD empty despite allFiles path=" + directory.getAbsolutePath()
+                    "LOAD empty despite access path=" + directory.getAbsolutePath()
                             + " canRead=" + directory.canRead());
         } else {
-            setStatus(entries.size() + " Einträge · Vollzugriff aktiv · Safe Mode nur lesend", false);
+            setStatus(entries.size() + " Einträge · Dateizugriff aktiv · Safe Mode nur lesend", false);
             AutomotiveSafeApplication.log(this,
                     "06 File list created path=" + directory.getAbsolutePath()
                             + " entries=" + entries.size()
-                            + " allFiles=true");
+                            + " broadAccess=true");
             AutomotiveSafeApplication.log(this, "STARTUP COMPLETE");
         }
 
